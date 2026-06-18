@@ -360,7 +360,7 @@ class Handler(BaseHTTPRequestHandler):
         for s in solucoes: s["consumo"] = consumo
         pasta   = os.path.join(BASE_DIR, "dados", "resultados")
         caminho = exportar_xlsx(solucoes, grade, tamanhos, limites, cfg, ref, pasta)
-        self._send(200, {"caminho": caminho})
+        self._send(200, {"caminho": caminho, "nome": os.path.basename(caminho)})
 
     def _salvar_cores(self, p):
         salvar_cores_arquivo(p.get("cores", []))
@@ -462,7 +462,7 @@ class Handler(BaseHTTPRequestHandler):
         config     = p.get("config", carregar_config())
         pasta      = os.path.join(BASE_DIR, "dados", "resultados")
         caminho    = exportar_multiref_xlsx(solucoes, tamanhos, referencia, config, pasta)
-        self._send(200, {"caminho": caminho})
+        self._send(200, {"caminho": caminho, "nome": os.path.basename(caminho)})
 
 
     def _alocar_rolos(self, p):

@@ -307,7 +307,7 @@ input:focus,select:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 2p
   <div class="ocont" id="ocont"></div>
   <div class="sep"></div>
   <div class="btn-row">
-    <button class="btn btn-ok" onclick="exportar()">📥 Exportar Planilha (.xlsx)</button>
+    <button class="btn btn-ok" onclick="exportarTodos()">📥 Exportar Planilha (.xlsx)</button>
     <span class="sm" id="es"></span>
   </div>
 </div>
@@ -1408,8 +1408,21 @@ async function exportarMultiref(data){
   try{
     const r=await fetch('/exportar_multiref',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
     const res=await r.json();
-    document.getElementById('es').textContent=res.caminho?'✅ Salvo: '+res.caminho:'❌ '+res.erro;
-  }catch(e){document.getElementById('es').textContent='❌ '+e.message;}
+    if(res.nome||res.caminho){
+      const nome=res.nome||res.caminho;
+      const a=document.createElement('a');a.href='/baixar?arquivo='+encodeURIComponent(nome);a.download=nome;a.click();
+      document.getElementById('es').textContent='Baixando: '+nome;
+    }else{document.getElementById('es').textContent='Erro: '+(res.erro||'?');}
+  }catch(e){document.getElementById('es').textContent='Erro: '+e.message;}
+}
+
+async function exportarTodos(){
+  if(window._multiGrupoValidos){
+    const best=window._multiGrupoValidos[0];
+    for(let gpi=0;gpi<best.grupos.length;gpi++) await exportarGrupo(gpi);
+  }else{
+    await exportar();
+  }
 }
 
 function renderOp(sol,tams,grade,lims,num,data_consumo){
@@ -1611,8 +1624,12 @@ async function exportar(data){
   try{
     const r=await fetch('/exportar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});
     const res=await r.json();
-    document.getElementById('es').textContent=res.caminho?'✅ Salvo: '+res.caminho:'❌ '+res.erro;
-  }catch(e){document.getElementById('es').textContent='❌ '+e.message;}
+    if(res.nome||res.caminho){
+      const nome=res.nome||res.caminho;
+      const a=document.createElement('a');a.href='/baixar?arquivo='+encodeURIComponent(nome);a.download=nome;a.click();
+      document.getElementById('es').textContent='Baixando: '+nome;
+    }else{document.getElementById('es').textContent='Erro: '+(res.erro||'?');}
+  }catch(e){document.getElementById('es').textContent='Erro: '+e.message;}
 }
 function limpar(){
   cores=[...cadastroCores]; refs=[]; pid=1;
