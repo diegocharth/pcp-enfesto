@@ -25,7 +25,7 @@ from urllib.parse import urlparse
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
-VERSION      = "2.8.2"
+VERSION      = "2.8.4"
 CORES_FILE        = os.path.join(BASE_DIR, "dados", "cores_salvas.json")
 PARAMS_FILE       = os.path.join(BASE_DIR, "dados", "parametros_salvos.json")
 PID_FILE          = os.path.join(BASE_DIR, "dados", "servidor.pid")
@@ -166,6 +166,16 @@ _progresso_lock = threading.Lock()
 def _add_progresso(msg):
     with _progresso_lock:
         _progresso_fila.append(msg)
+
+
+def _copiar_para_downloads(caminho):
+    import shutil as _sh
+    try:
+        dl = os.path.join(os.path.expanduser('~'), 'Downloads')
+        if os.path.isdir(dl):
+            _sh.copy2(caminho, os.path.join(dl, os.path.basename(caminho)))
+    except Exception:
+        pass
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -360,6 +370,7 @@ class Handler(BaseHTTPRequestHandler):
         for s in solucoes: s["consumo"] = consumo
         pasta   = os.path.join(BASE_DIR, "dados", "resultados")
         caminho = exportar_xlsx(solucoes, grade, tamanhos, limites, cfg, ref, pasta)
+        _copiar_para_downloads(caminho)
         self._send(200, {"caminho": caminho, "nome": os.path.basename(caminho)})
 
     def _salvar_cores(self, p):
@@ -462,6 +473,7 @@ class Handler(BaseHTTPRequestHandler):
         config     = p.get("config", carregar_config())
         pasta      = os.path.join(BASE_DIR, "dados", "resultados")
         caminho    = exportar_multiref_xlsx(solucoes, tamanhos, referencia, config, pasta)
+        _copiar_para_downloads(caminho)
         self._send(200, {"caminho": caminho, "nome": os.path.basename(caminho)})
 
 
