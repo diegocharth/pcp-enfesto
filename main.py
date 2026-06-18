@@ -1,19 +1,19 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 PCP Enfestos v2.8.0
 Changelog:
   v2.8.0 - Alocador de rolos (FFD adaptado, margem por sub-enfesto, ponta como estoque).
            Import do controle de rolos do ERP Vexta (PDF) com mapeamento de cor.
            Auto-update via GitHub Releases.
-  v2.7.0 - Multi-ref: testa TODOS os agrupamentos possíveis (pares, trios, todos juntos).
-           Avalia todos os particionamentos e exibe a combinação ótima com tabela comparativa.
-           Timeout individual max=180s; agrupamento = min(360, t×n_refs).
+  v2.7.0 - Multi-ref: testa TODOS os agrupamentos possÃ­veis (pares, trios, todos juntos).
+           Avalia todos os particionamentos e exibe a combinaÃ§Ã£o Ã³tima com tabela comparativa.
+           Timeout individual max=180s; agrupamento = min(360, tÃ—n_refs).
   v2.6.1 - Multi-ref: cada ref recebe timeout completo; combinado usa timeout/3.
   v2.6.0 - Zombie fix (netstat+taskkill). Cor salva sem prefixo REF| (split|[-1]).
   v2.4.0 - Solver: premissa principal = menos enfestos. hi=0 via check_viavel.
-  v2.3.1 - Solver corrigido. Persistência de parâmetros e cores. Progresso real.
-  v2.3.0 - Shutdown via botão, VBS robusto
-  v2.1.0 - Múltiplas refs, upload, cores salvas
+  v2.3.1 - Solver corrigido. PersistÃªncia de parÃ¢metros e cores. Progresso real.
+  v2.3.0 - Shutdown via botÃ£o, VBS robusto
+  v2.1.0 - MÃºltiplas refs, upload, cores salvas
   v2.0.0 - Interface HTML, solver otimizado
 """
 
@@ -25,14 +25,14 @@ from urllib.parse import urlparse
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
-VERSION      = "2.8.0"
+VERSION      = "2.8.1"
 CORES_FILE        = os.path.join(BASE_DIR, "dados", "cores_salvas.json")
 PARAMS_FILE       = os.path.join(BASE_DIR, "dados", "parametros_salvos.json")
 PID_FILE          = os.path.join(BASE_DIR, "dados", "servidor.pid")
 MAPA_CORES_FILE   = os.path.join(BASE_DIR, "dados", "mapa_cores.json")
 HISTORICO_FILE    = os.path.join(BASE_DIR, "dados", "historico_solucoes.json")
 
-# Importações lazy para evitar erro de startup
+# ImportaÃ§Ãµes lazy para evitar erro de startup
 def _importar():
     global resolver, calcular_limites_grade, exportar_xlsx, parse_arquivo, extrair_grade_de_imagem
     global resolver_multiref, exportar_multiref_xlsx
@@ -100,22 +100,22 @@ def gravar_pid():
         f.write(str(os.getpid()))
 
 
-# ── Aprendizado histórico ──────────────────────────────────────────────────
+# â”€â”€ Aprendizado histÃ³rico â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _fingerprint_grade(grade_total: dict, tamanhos: list) -> str:
-    """Identifica uma grade pela distribuição proporcional de tamanhos (±5%)."""
+    """Identifica uma grade pela distribuiÃ§Ã£o proporcional de tamanhos (Â±5%)."""
     total = sum(grade_total.get(t, 0) for t in tamanhos)
     if total == 0:
         return "vazio"
     partes = []
     for t in tamanhos:
-        pct = round(grade_total.get(t, 0) / total * 20) * 5  # arredonda para múltiplo de 5%
+        pct = round(grade_total.get(t, 0) / total * 20) * 5  # arredonda para mÃºltiplo de 5%
         if pct > 0:
             partes.append(f"{t}={pct}")
     return ",".join(partes)
 
 def carregar_historico(fingerprint: str) -> list:
-    """Retorna os mapas históricos da melhor solução para esta grade."""
+    """Retorna os mapas histÃ³ricos da melhor soluÃ§Ã£o para esta grade."""
     if not os.path.exists(HISTORICO_FILE):
         return []
     try:
@@ -129,7 +129,7 @@ def carregar_historico(fingerprint: str) -> list:
         return []
 
 def salvar_historico(fingerprint: str, mapas_vencedores: list, desvio: int):
-    """Salva ou atualiza a melhor solução para esta grade no histórico."""
+    """Salva ou atualiza a melhor soluÃ§Ã£o para esta grade no histÃ³rico."""
     _ensure_dados()
     historico = {}
     if os.path.exists(HISTORICO_FILE):
@@ -142,7 +142,7 @@ def salvar_historico(fingerprint: str, mapas_vencedores: list, desvio: int):
     entrada_atual = historico.get(fingerprint, {})
     desvio_atual = entrada_atual.get("desvio", 9999)
 
-    # Só atualiza se esta solução for melhor (menor desvio)
+    # SÃ³ atualiza se esta soluÃ§Ã£o for melhor (menor desvio)
     if desvio < desvio_atual:
         historico[fingerprint] = {
             "mapas": mapas_vencedores,
@@ -152,14 +152,14 @@ def salvar_historico(fingerprint: str, mapas_vencedores: list, desvio: int):
         with open(HISTORICO_FILE, "w", encoding="utf-8") as f:
             json.dump(historico, f, ensure_ascii=False, indent=2)
 
-# ──────────────────────────────────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def remover_pid():
     try: os.remove(PID_FILE)
     except: pass
 
 
-# Fila de progresso para o cálculo em andamento
+# Fila de progresso para o cÃ¡lculo em andamento
 _progresso_fila = []
 _progresso_lock = threading.Lock()
 
@@ -269,7 +269,7 @@ class Handler(BaseHTTPRequestHandler):
         referencia = p.get("referencia", "REF")
         timeout    = int(p.get("timeout", 120))
 
-        # Salvar parâmetros usados para próxima sessão
+        # Salvar parÃ¢metros usados para prÃ³xima sessÃ£o
         salvar_params({
             "consumo": p.get("consumo", 1.0645),
             "mesa": p.get("mesa", 10.0),
@@ -285,7 +285,7 @@ class Handler(BaseHTTPRequestHandler):
             "regras_especiais": regras,
         })
 
-        # Salvar cores usadas (extrair só a cor, sem prefixo de referência "Ref|Cor")
+        # Salvar cores usadas (extrair sÃ³ a cor, sem prefixo de referÃªncia "Ref|Cor")
         cores_brutas = list(grade.keys())
         cores_limpas = list({c.split("|")[-1] for c in cores_brutas})
         cores_usadas = cores_limpas + carregar_cores_salvas()
@@ -293,11 +293,11 @@ class Handler(BaseHTTPRequestHandler):
 
         limites  = calcular_limites_grade(grade, tamanhos, cfg, regras)
 
-        # Calcular grade total e fingerprint para o histórico
+        # Calcular grade total e fingerprint para o histÃ³rico
         grade_total = {t: sum(grade[c].get(t, 0) for c in grade) for t in tamanhos}
         fp = _fingerprint_grade(grade_total, tamanhos)
 
-        # Injetar mapas históricos no início da lista de prioridades
+        # Injetar mapas histÃ³ricos no inÃ­cio da lista de prioridades
         from engine import mapas as _mapas_mod
         historicos = carregar_historico(fp)
         _mapas_mod._mapas_historicos_injetar = historicos
@@ -314,13 +314,13 @@ class Handler(BaseHTTPRequestHandler):
             solucoes = resolver(grade, tamanhos, limites, cfg,
                                 callback_progresso=cb, timeout_s=timeout)
         finally:
-            _mapas_mod._mapas_historicos_injetar = []  # sempre limpar após uso
+            _mapas_mod._mapas_historicos_injetar = []  # sempre limpar apÃ³s uso
 
         if not solucoes:
-            self._send(200, {"erro": "Nenhuma solução encontrada. Tente aumentar tolerância ou timeout."})
+            self._send(200, {"erro": "Nenhuma soluÃ§Ã£o encontrada. Tente aumentar tolerÃ¢ncia ou timeout."})
             return
 
-        # Salvar melhor solução no histórico (aprendizado)
+        # Salvar melhor soluÃ§Ã£o no histÃ³rico (aprendizado)
         melhor = solucoes[0]
         try:
             mapas_vencedores = melhor.get("mapas") or []
@@ -329,7 +329,7 @@ class Handler(BaseHTTPRequestHandler):
             if mapas_vencedores:
                 salvar_historico(fp, mapas_vencedores, desvio_melhor)
         except Exception:
-            pass  # nunca bloquear o resultado por falha no histórico
+            pass  # nunca bloquear o resultado por falha no histÃ³rico
 
         def ser(o):
             if isinstance(o, dict): return {k: ser(v) for k,v in o.items()}
@@ -367,7 +367,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, {"ok": True})
 
     def _salvar_params(self, p):
-        # Salva apenas parâmetros da UI (não grade)
+        # Salva apenas parÃ¢metros da UI (nÃ£o grade)
         params_atuais = carregar_params_salvos()
         params_atuais.update(p)
         salvar_params(params_atuais)
@@ -386,7 +386,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, extrair_grade_de_imagem(b64data, mime, api_key))
 
     def _calcular_grupo(self, p):
-        """Solver multi-ref: cada ref tem sua própria composição no enfesto combinado."""
+        """Solver multi-ref: cada ref tem sua prÃ³pria composiÃ§Ã£o no enfesto combinado."""
         cfg = carregar_config()
         cfg["mesa_comprimento_m"]          = float(p.get("mesa", 10.0))
         cfg["limite_folhas_padrao"]        = int(p.get("max_folhas", 70))
@@ -403,7 +403,7 @@ class Handler(BaseHTTPRequestHandler):
         referencia = p.get("referencia", "Grupo")
         regras     = p.get("regras_especiais", {})
 
-        # Calcula limites para cada ref com seu próprio consumo
+        # Calcula limites para cada ref com seu prÃ³prio consumo
         refs_data = []
         for r in refs_raw:
             consumo = float(r.get("consumo", 1.0645))
@@ -435,7 +435,7 @@ class Handler(BaseHTTPRequestHandler):
                                      callback=cb, timeout_s=timeout)
 
         if not solucoes:
-            self._send(200, {"erro": "Nenhuma solução combinada encontrada. Tente aumentar timeout ou tolerância."})
+            self._send(200, {"erro": "Nenhuma soluÃ§Ã£o combinada encontrada. Tente aumentar timeout ou tolerÃ¢ncia."})
             return
 
         def ser(o):
@@ -468,7 +468,7 @@ class Handler(BaseHTTPRequestHandler):
     def _alocar_rolos(self, p):
         """Aloca rolos de tecido para um plano de corte."""
         cfg    = carregar_config()
-        # Parâmetros de alocação (podem vir do frontend ou usar defaults do config)
+        # ParÃ¢metros de alocaÃ§Ã£o (podem vir do frontend ou usar defaults do config)
         cfg["margem_seguranca_enfesto_m"] = float(p.get("margem", cfg.get("margem_seguranca_enfesto_m", 0.10)))
         cfg["folga_incerteza_pct"]        = float(p.get("folga_pct", cfg.get("folga_incerteza_pct", 0.03)))
         cfg["folga_incerteza_m"]          = float(p.get("folga_m",   cfg.get("folga_incerteza_m", 0.0)))
@@ -492,7 +492,7 @@ class Handler(BaseHTTPRequestHandler):
         from urllib.parse import parse_qs, urlparse as _up
         qs = parse_qs(_up(self.path).query)
         nome = (qs.get("arquivo") or [""])[0]
-        # Segurança: só arquivos diretos em dados/resultados/ (sem path traversal)
+        # SeguranÃ§a: sÃ³ arquivos diretos em dados/resultados/ (sem path traversal)
         if not nome or "/" in nome or "\\" in nome or ".." in nome:
             self.send_response(400); self.end_headers(); return
         caminho = os.path.join(BASE_DIR, "dados", "resultados", nome)
@@ -624,7 +624,7 @@ def _encerrar_servidor():
 
 
 def _servidor_respondendo(porta):
-    """Retorna True se há um servidor HTTP ativo respondendo na porta."""
+    """Retorna True se hÃ¡ um servidor HTTP ativo respondendo na porta."""
     try:
         urllib.request.urlopen(f"http://localhost:{porta}/versao", timeout=2)
         return True
@@ -632,7 +632,7 @@ def _servidor_respondendo(porta):
         return False
 
 def _matar_zumbi_porta(porta):
-    """Encerra processos zumbi que estão bloqueando a porta."""
+    """Encerra processos zumbi que estÃ£o bloqueando a porta."""
     try:
         r = subprocess.run(["netstat", "-ano"], capture_output=True, text=True, timeout=5)
         for linha in r.stdout.splitlines():
@@ -654,21 +654,21 @@ def main():
         servidor = HTTPServer(("localhost", porta), Handler)
     except OSError:
         if _servidor_respondendo(porta):
-            # Servidor ativo — apenas abrir o browser
+            # Servidor ativo â€” apenas abrir o browser
             webbrowser.open(f"http://localhost:{porta}")
         else:
-            # Processo zumbi na porta — matar e tentar novamente
+            # Processo zumbi na porta â€” matar e tentar novamente
             _matar_zumbi_porta(porta)
             time.sleep(1)
             try:
                 servidor = HTTPServer(("localhost", porta), Handler)
             except OSError:
-                # Ainda em uso — abrir browser e sair
+                # Ainda em uso â€” abrir browser e sair
                 webbrowser.open(f"http://localhost:{porta}")
                 sys.exit(0)
             gravar_pid()
             _servidor_ref = servidor
-            print(f"PCP Enfestos v{VERSION} — http://localhost:{porta} (retomado apos zumbi)")
+            print(f"PCP Enfestos v{VERSION} â€” http://localhost:{porta} (retomado apos zumbi)")
             try:
                 servidor.serve_forever()
             except KeyboardInterrupt:
@@ -679,7 +679,7 @@ def main():
         sys.exit(0)
     gravar_pid()
     _servidor_ref = servidor
-    print(f"PCP Enfestos v{VERSION} — http://localhost:{porta}")
+    print(f"PCP Enfestos v{VERSION} â€” http://localhost:{porta}")
     try:
         servidor.serve_forever()
     except KeyboardInterrupt:
@@ -689,3 +689,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
