@@ -1,0 +1,79 @@
+name: Release Automático
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'VERSION'   # só dispara quando VERSION mudar
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ler versão
+        id: ver
+        run: echo "version=$(cat VERSION | tr -d '[:space:]')" >> $GITHUB_OUTPUT
+
+      - name: Verificar se release já existe
+        id: check
+        run: |
+          TAG="v${{ steps.ver.outputs.version }}"
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Release $TAG já existe — nada a fazer."
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Release $TAG não existe — criando."
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Criar zip da release
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          python3 - <<'PYEOF'
+import zipfile, os, sys
+
+version = open('VERSION').read().strip()
+prefix  = f'pcp_enfestos-{version}/'
+outzip  = f'pcp_enfestos-{version}.zip'
+
+# Dirs e arquivos a excluir do zip
+EXCLUIR_DIRS  = {'dados', '__pycache__', '.git', '.github', 'node_modules'}
+EXCLUIR_EXTS  = {'.pyc', '.pyo'}
+EXCLUIR_NOMES = set()  # arquivos específicos a excluir
+
+with zipfile.ZipFile(outzip, 'w', zipfile.ZIP_DEFLATED) as zf:
+    for root, dirs, files in os.walk('.'):
+        # Remover dirs excluídos in-place
+        dirs[:] = [d for d in dirs if d not in EXCLUIR_DIRS]
+        for fname in files:
+            if os.path.splitext(fname)[1] in EXCLUIR_EXTS:
+                continue
+            if fname in EXCLUIR_NOMES:
+                continue
+            full = os.path.join(root, fname)
+            arc  = prefix + full[2:]   # remove './'
+            zf.write(full, arc)
+
+print(f'Zip criado: {outzip}')
+PYEOF
+
+      - name: Criar GitHub Release
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          TAG="v${VERSION}"
+          gh release create "$TAG" \
+            "pcp_enfestos-${VERSION}.zip" \
+            --title "PCP Enfestos v${VERSION}" \
+            --notes "Atualização automática — v${VERSION}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,23 @@
+# Dados do usuário (nunca vão para o repo/zip)
+dados/cores_salvas.json
+dados/parametros_salvos.json
+dados/historico_solucoes.json
+dados/mapa_cores.json
+dados/servidor.pid
+dados/resultados/
+dados/ordens/
+dados/_update_pendente/
+dados/_backup_versao_anterior/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Scripts temporários de patch
+_patch*.py
+_fix*.py
+
+# OS
+.DS_Store
+Thumbs.db

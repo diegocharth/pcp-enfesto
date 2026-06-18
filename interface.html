@@ -1,0 +1,2034 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>PCP Enfestos — Charth</title>
+<style>
+:root{
+  --bg:#f5f4f0;--sf:#fff;--sf2:#f8f7f4;--bd:#e2e0d8;--bd2:#c8c6bc;
+  --tx:#1a1a18;--tx2:#5c5b56;--tx3:#9c9b95;
+  --ac:#1a3a5c;--acl:#d6e4f0;
+  --ok:#1d6a2e;--okb:#d5f5e3;--wn:#7d4c00;--wnb:#fdebd0;
+  --er:#922b21;--erb:#fadbd8;--in:#154360;--inb:#d6eaf8;
+  --r:8px;--rl:12px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Arial,sans-serif;font-size:14px;background:var(--bg);color:var(--tx)}
+.hdr{background:var(--ac);color:#fff;padding:13px 22px;display:flex;align-items:center;justify-content:space-between}
+.hdr h1{font-size:16px;font-weight:600}
+.hdr-r{font-size:11px;opacity:.65;display:flex;gap:14px;align-items:center}
+.wrap{max-width:1140px;margin:0 auto;padding:18px 14px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.card{background:var(--sf);border:1px solid var(--bd);border-radius:var(--rl);padding:14px 16px;margin-bottom:13px}
+.ct{font-size:13px;font-weight:600;color:var(--ac);margin-bottom:11px;padding-bottom:6px;border-bottom:1px solid var(--bd);display:flex;align-items:center;justify-content:space-between;gap:8px}
+.field{margin-bottom:9px}
+label{display:block;font-size:12px;font-weight:600;color:var(--tx2);margin-bottom:3px}
+input[type=text],input[type=number],select{width:100%;padding:6px 8px;border:1px solid var(--bd2);border-radius:var(--r);font-size:13px;color:var(--tx);background:var(--sf)}
+input:focus,select:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 2px rgba(26,58,92,.1)}
+.hint{font-size:11px;color:var(--tx3);margin-top:2px;line-height:1.5}
+.hint b{color:var(--tx2);font-weight:600}
+/* grade */
+.gw{overflow-x:auto}
+.gt{border-collapse:collapse;width:100%;font-size:12px;table-layout:auto}
+.gt th{background:var(--ac);color:#fff;padding:6px 8px;font-size:11px;text-align:center;white-space:nowrap}
+.gt th:first-child{text-align:left;min-width:130px}
+.gt th:not(:first-child):not(:last-child){min-width:62px;width:62px}
+.gt td{padding:0;border:1px solid var(--bd)}
+.gt td:first-child{font-weight:600;padding:4px 8px;background:var(--sf2);font-size:12px;white-space:nowrap}
+.gt td.tot-cor{background:var(--acl)!important;font-weight:700;color:var(--ac);text-align:center;font-size:12px;padding:4px 6px;min-width:46px}
+.gt input[type=number]{width:100%;height:30px;padding:0 4px;border:none;border-radius:0;font-size:13px;text-align:center;display:block;background:transparent;color:var(--tx)}
+.gt input[type=number]:focus{outline:none;background:#fffef8;box-shadow:inset 0 0 0 2px var(--ac)}
+.gt tr:nth-child(even) td{background:var(--sf2)}
+.gt tr:nth-child(even) td:first-child{background:#eeece6}
+.gt .tot-row td{background:#e8e6df!important;font-weight:600;font-size:11px;color:var(--ac);text-align:center;padding:4px 6px}
+.gt .tot-row td:first-child{text-align:left}
+/* tolerância */
+.tt{width:100%;border-collapse:collapse;font-size:12px}
+.tt th{background:var(--sf2);padding:5px 6px;font-size:11px;font-weight:600;color:var(--tx2);border:1px solid var(--bd);text-align:center}
+.tt td{padding:4px 5px;border:1px solid var(--bd);text-align:center}
+.tt td:first-child{text-align:left;font-weight:600}
+.tt input{width:52px;padding:3px 4px;border:1px solid var(--bd);border-radius:4px;font-size:11px;text-align:center}
+/* botões */
+.btn{padding:8px 16px;border:none;border-radius:var(--r);font-size:12px;font-weight:600;cursor:pointer;transition:.15s}
+.btn-p{background:var(--ac);color:#fff}.btn-p:hover{background:#122d4a}
+.btn-s{background:var(--sf2);color:var(--tx2);border:1px solid var(--bd2)}.btn-s:hover{background:var(--bd)}
+.btn-ok{background:#196f3d;color:#fff}.btn-ok:hover{background:#145a32}
+.btn-sm{padding:4px 10px;font-size:11px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-row{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:18px}
+/* progresso */
+.pb{background:var(--inb);border:1px solid #aed6f1;border-radius:var(--r);padding:11px 13px;margin-bottom:13px;display:none}
+.pb-t{font-size:13px;font-weight:600;color:var(--in);margin-bottom:5px}
+.pb-l{font-size:11px;color:var(--tx2);font-family:monospace;max-height:110px;overflow-y:auto;line-height:1.6}
+.pb-w{background:#d6eaf8;border-radius:4px;height:5px;margin-top:6px;overflow:hidden}
+.pb-b{height:100%;background:var(--ac);border-radius:4px;transition:width .3s}
+/* resultado */
+.rb{display:none}
+.otabs{display:flex;gap:4px}
+.otab{padding:6px 14px;border:1px solid var(--bd2);border-bottom:none;border-radius:8px 8px 0 0;background:var(--sf2);color:var(--tx2);font-size:12px;font-weight:600;cursor:pointer}
+.otab.at{background:var(--sf);color:var(--ac);border-color:var(--bd)}
+.ocont{border:1px solid var(--bd);border-radius:0 var(--rl) var(--rl) var(--rl);padding:16px;background:var(--sf)}
+.opan{display:none}.opan.at{display:block}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:13px}
+.kpi{background:var(--sf2);border-radius:var(--r);padding:9px 11px;text-align:center}
+.kpiv{font-size:19px;font-weight:700;color:var(--ac);display:block}
+.kpil{font-size:10px;color:var(--tx2);margin-top:2px}
+.rt{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:8px}
+.rt th{background:var(--ac);color:#fff;padding:5px 6px;font-size:10px;text-align:center;white-space:nowrap}
+.rt th:first-child{text-align:left}
+.rt td{padding:4px 6px;border:1px solid var(--bd);text-align:center}
+.rt td:first-child{text-align:left;font-weight:600}
+.rt tr:nth-child(even) td{background:var(--sf2)}
+.rt .tot-e td{background:#e8e6df!important;font-weight:600;color:var(--ac);font-size:10px}
+.rt .tot-g td{background:var(--acl)!important;font-weight:700;color:var(--ac)}
+.aok{color:var(--ok);font-weight:600}.aneg{color:var(--er);font-weight:600}.apos{color:var(--wn);font-weight:600}
+.ehdr{background:var(--acl);font-weight:700;font-size:11px;color:var(--ac);padding:6px 9px;margin:9px 0 3px;border-radius:var(--r)}
+.badge{font-size:10px;padding:2px 6px;border-radius:99px;font-weight:600}
+.bok{background:var(--okb);color:var(--ok)}.bin{background:var(--inb);color:var(--in)}
+.sep{height:1px;background:var(--bd);margin:13px 0}
+.sm{font-size:11px;color:var(--tx3)}
+.chip{background:var(--acl);color:var(--ac);border:1px solid #aed6f1;border-radius:99px;padding:2px 8px;font-size:11px;font-weight:600;display:inline-flex;align-items:center;gap:3px;margin:2px}
+.chip .x{cursor:pointer;color:var(--tx3);font-size:12px}.chip .x:hover{color:var(--er)}
+.tt2{padding:3px 10px;border:1px solid var(--bd2);border-radius:99px;font-size:12px;cursor:pointer;background:var(--sf2);display:inline-block;margin:2px}
+.tt2.at{background:var(--ac);color:#fff;border-color:var(--ac)}
+#ebox{background:var(--erb);border:1px solid #f1948a;border-radius:var(--r);padding:8px 12px;color:var(--er);font-size:12px;display:none;margin-bottom:9px}
+.ref-abas{display:flex;gap:3px;flex-wrap:wrap}
+.ref-aba{padding:5px 12px;border:1px solid var(--bd2);border-bottom:none;border-radius:7px 7px 0 0;background:var(--sf2);color:var(--tx2);font-size:11px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px}
+.ref-aba.at{background:var(--sf);color:var(--ac);border-color:var(--bd)}
+.ref-aba .xr{color:var(--tx3);font-size:13px;cursor:pointer}.ref-aba .xr:hover{color:var(--er)}
+.ref-body{border:1px solid var(--bd);border-radius:0 var(--rl) var(--rl) var(--rl);padding:14px;background:var(--sf)}
+.ref-pan{display:none}.ref-pan.at{display:block}
+.ridx{background:var(--ac);color:#fff;border-radius:99px;font-size:9px;font-weight:700;padding:1px 5px}
+.ibox{background:var(--inb);border:1px solid #aed6f1;border-radius:var(--r);padding:8px 12px;font-size:11px;color:var(--in);margin-bottom:9px;line-height:1.6}
+.ibox b{font-weight:600}
+.uzone{border:2px dashed var(--bd2);border-radius:var(--r);padding:20px;text-align:center;cursor:pointer;transition:.2s;font-size:12px;color:var(--tx2)}
+.uzone:hover,.uzone.drag{border-color:var(--ac);background:var(--acl);color:var(--ac)}
+.cmp-table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px}
+.cmp-table th{background:var(--ac);color:#fff;padding:5px 7px;font-size:10px;text-align:center}
+.cmp-table th:first-child{text-align:left;min-width:90px}
+.cmp-table td{padding:4px 6px;border:1px solid var(--bd);text-align:center}
+.cmp-table td:first-child{text-align:left;font-weight:600}
+.cmp-table tr:nth-child(even) td{background:var(--sf2)}
+.cmp-melhor{color:var(--ok);font-weight:700}.cmp-pior{color:var(--er);font-weight:600}
+.cmp-table .tot-g td{background:var(--acl)!important;font-weight:700;color:var(--ac)}
+/* pesos vinculados */
+.peso-wrap{display:flex;gap:10px;align-items:center;margin-top:4px}
+.peso-wrap input{flex:1}
+.peso-total{font-size:11px;padding:4px 8px;border-radius:var(--r);font-weight:600;background:var(--okb);color:var(--ok)}
+.peso-total.err{background:var(--erb);color:var(--er)}
+/* api key box */
+.api-box{background:#fffbf0;border:1px solid #f0d080;border-radius:var(--r);padding:8px 12px;font-size:11px;color:#5a4000;margin-top:8px;line-height:1.6;display:none}
+.api-box b{font-weight:600}
+/* cadastro de cores */
+.cores-grid{display:flex;flex-wrap:wrap;gap:4px;min-height:30px;padding:6px;background:var(--sf2);border-radius:var(--r);border:1px solid var(--bd)}
+.cor-item{display:flex;align-items:center;gap:5px;padding:4px 8px;border-radius:99px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid transparent;transition:.15s}
+.cor-item.ativa{background:var(--acl);color:var(--ac);border-color:#aed6f1}
+.cor-item.inativa{background:var(--sf2);color:var(--tx3);border-color:var(--bd)}
+.cor-item .cx{cursor:pointer;font-size:13px;color:var(--tx3)}.cor-item .cx:hover{color:var(--er)}
+/* barra de progresso por etapas */
+.prog-etapas{display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap}
+.prog-etapa{font-size:10px;padding:2px 8px;border-radius:99px;background:var(--sf2);color:var(--tx3);border:1px solid var(--bd)}
+.prog-etapa.atual{background:var(--acl);color:var(--ac);font-weight:600;border-color:#aed6f1}
+.prog-etapa.ok{background:var(--okb);color:var(--ok);border-color:var(--ok)}
+.prog-etapa.erro{background:var(--erb);color:var(--er);border-color:var(--er)}
+</style>
+</head>
+<body>
+<div class="hdr">
+  <h1>⚙️ PCP Enfestos</h1>
+  <div class="hdr-r"><span id="ver-sp">v2.8.0</span><span>Charth</span></div>
+</div>
+<div class="wrap">
+
+<!-- PARÂMETROS -->
+<div class="card">
+  <div class="ct"><span>⚙️ Parâmetros da Mesa</span></div>
+  <input type="hidden" id="consumo" value="1.0645">
+  <div class="g2">
+    <div class="field">
+      <label>Comprimento da mesa (m)</label>
+      <input type="number" id="mesa" value="10" step="0.1" min="1">
+      <div class="hint">Define o máximo de peças por mapa. Consumo configurado por referência.</div>
+    </div>
+    <div class="field">
+      <label>Limite de folhas por enfesto</label>
+      <input type="number" id="max_folhas" value="70" step="1" min="1">
+      <div class="hint">Máx de folhas (soma todas as cores) por enfesto. Padrão: <b>70</b>.</div>
+    </div>
+  </div>
+  <div class="g3">
+    <div class="field">
+      <label>Opções a gerar</label>
+      <select id="num_opcoes">
+        <option value="1">1 opção (só a ótima)</option>
+        <option value="2" selected>2 opções (ótima + alternativa)</option>
+        <option value="3">3 opções</option>
+      </select>
+      <div class="hint">Gera opções distintas para simular no Audaces.</div>
+    </div>
+    <div class="field">
+      <label>Peso eficiência de encaixe</label>
+      <div class="peso-wrap">
+        <input type="number" id="peso_enc" value="6" min="0" max="10" step="1" oninput="sincPeso('enc')">
+        <span class="peso-total" id="peso-total">= 10 ✓</span>
+      </div>
+      <div class="hint"><b>Maximizar peças/mapa</b> → melhor tecido no Audaces.</div>
+    </div>
+    <div class="field">
+      <label>Peso eficiência operacional</label>
+      <div class="peso-wrap">
+        <input type="number" id="peso_op" value="4" min="0" max="10" step="1" oninput="sincPeso('op')">
+      </div>
+      <div class="hint"><b>Minimizar nº de enfestos</b> → menos setup na mesa.</div>
+    </div>
+  </div>
+  <div class="field" style="max-width:300px">
+    <label>Timeout da busca (segundos)</label>
+    <input type="number" id="timeout" value="120" min="30" max="180" step="30">
+    <div class="hint">Tempo por referência individual (máx 180s). Agrupamentos usam min(360s, timeout × n_refs).</div>
+  </div>
+</div>
+
+<!-- TAMANHOS -->
+<div class="card">
+  <div class="ct"><span>📐 Tamanhos</span><span class="sm">Compartilhado entre todas as referências</span></div>
+  <div id="tam-btns" style="display:flex;gap:5px;flex-wrap:wrap"></div>
+  <div class="hint" style="margin-top:7px">Clique para ativar/desativar.</div>
+</div>
+
+<!-- CORES -->
+<div class="card">
+  <div class="ct">
+    <span>🎨 Cores da Sessão</span>
+    <button class="btn btn-s btn-sm" onclick="toggleCadastroCores()" id="btn-cadastro-toggle">⚙️ Gerenciar cadastro</button>
+  </div>
+  <div class="ibox">
+    Selecione as cores que vai usar <b>neste cálculo</b>. Clique numa cor para ativar/desativar. Use o cadastro para adicionar novas ou excluir permanentemente.
+  </div>
+
+  <!-- Adicionar nova cor -->
+  <div style="display:flex;gap:7px;margin-bottom:8px;flex-wrap:wrap;align-items:center">
+    <input type="text" id="nova-cor" placeholder="Nova cor (ex: BLUES)" style="max-width:180px" onkeydown="if(event.key==='Enter')addCorCadastro()">
+    <button class="btn btn-s btn-sm" onclick="addCorCadastro()">+ Adicionar ao cadastro</button>
+  </div>
+
+  <!-- Grid de cores do cadastro — clicáveis para ativar/desativar na sessão -->
+  <div style="font-size:11px;font-weight:600;color:var(--tx2);margin-bottom:5px">
+    Clique para ativar/desativar na sessão atual:
+  </div>
+  <div class="cores-grid" id="cores-grid">
+    <span class="sm">Nenhuma cor no cadastro.</span>
+  </div>
+
+  <!-- Painel de gerenciamento (oculto por padrão) -->
+  <div id="cadastro-panel" style="display:none;margin-top:10px;background:var(--sf2);border-radius:var(--r);padding:10px 12px;border:1px solid var(--bd)">
+    <div style="font-size:11px;font-weight:600;color:var(--tx2);margin-bottom:6px">Gerenciar cadastro — clique no × para remover permanentemente:</div>
+    <div id="cores-gerenciar" style="display:flex;flex-wrap:wrap;gap:4px"></div>
+    <div style="margin-top:8px;display:flex;gap:7px">
+      <button class="btn btn-s btn-sm" onclick="ativarTodasCores()">✓ Ativar todas</button>
+      <button class="btn btn-s btn-sm" onclick="desativarTodasCores()">○ Desativar todas</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOLERÂNCIA -->
+<div class="card">
+  <div class="ct"><span>⚖️ Tolerâncias</span><span class="sm">Aplicadas a todas as referências</span></div>
+  <div class="ibox">
+    Usa o <b>critério mais restritivo (MIN)</b> entre absoluto e percentual. Ex: grade P=34 → min(±4, ±6,8) = <b>±4</b>. Grade XPP=1 → min(±4, ±0,2) = <b>±1</b>.
+  </div>
+  <div class="g3" style="margin-bottom:10px">
+    <div class="field">
+      <label>Desvio absoluto (peças)</label>
+      <input type="number" id="tol_abs" value="4" min="0" max="20">
+      <div class="hint">Limite fixo em peças.</div>
+    </div>
+    <div class="field">
+      <label>Desvio percentual (%)</label>
+      <input type="number" id="tol_pct" value="20" min="0" max="100">
+      <div class="hint">Limite relativo à grade de cada tamanho/cor.</div>
+    </div>
+    <div class="field">
+      <label>Critério</label>
+      <select id="criterio">
+        <option value="MIN">MIN — mais restritivo (padrão)</option>
+        <option value="MAX">MAX — mais permissivo</option>
+      </select>
+    </div>
+  </div>
+  <div style="font-size:11px;font-weight:600;color:var(--tx2);margin-bottom:6px">
+    Limites especiais por tamanho <span style="font-weight:400;color:var(--tx3)">(opcional)</span>
+  </div>
+  <table class="tt">
+    <thead><tr><th>Tamanho</th><th>Mín (peças)</th><th>Máx (peças)</th><th>Ativo?</th></tr></thead>
+    <tbody id="tol-body"></tbody>
+  </table>
+  <div class="hint" style="margin-top:5px">Ex: G não pode aumentar → G ativo, Máx = 0 (padrão). Mín vazio = usa regra geral.</div>
+</div>
+
+<!-- UPLOAD -->
+<div class="card">
+  <div class="ct">
+    <span>📋 Referências</span>
+    <div style="display:flex;gap:7px;align-items:center">
+      <span class="sm" id="info-refs"></span>
+      <button class="btn btn-s btn-sm" onclick="addRef()">+ Nova referência</button>
+      <button class="btn btn-s btn-sm" onclick="carregarExemplo()">📂 Exemplo Charth</button>
+    </div>
+  </div>
+  <div class="ibox">
+    Cada referência tem sua grade. As cores são as mesmas para todas. O solver pode misturar referências no mesmo enfesto quando gerar melhor aproveitamento.
+  </div>
+  <div class="ref-abas" id="ref-abas"></div>
+  <div class="ref-body" id="ref-body"></div>
+</div>
+
+<div id="ebox"></div>
+<div class="btn-row">
+  <button class="btn btn-p" id="btn-calc" onclick="calcular()">▶ Calcular Plano de Corte</button>
+  <button class="btn btn-s" id="btn-cancel" style="display:none;background:var(--er);color:#fff;border-color:var(--er)" onclick="cancelarCalculo()">⛔ Cancelar</button>
+  <button class="btn btn-s" onclick="limpar()">↺ Limpar</button>
+  <button class="btn btn-s" onclick="encerrarSistema()" title="Encerra o servidor e fecha o sistema" style="margin-left:auto;color:var(--er);border-color:var(--er)">â¹ Encerrar</button>
+  <span class="sm" id="sg"></span>
+</div>
+
+<div class="pb" id="pb">
+  <div class="pb-t">â³ Calculando...</div>
+  <div class="prog-etapas" id="prog-etapas"></div>
+  <div class="pb-w"><div class="pb-b" id="pbb" style="width:3%"></div></div>
+  <div class="pb-l" id="pbl" style="max-height:80px"></div>
+</div>
+
+<div class="rb" id="rb">
+  <div class="ct" style="font-size:14px;margin-bottom:9px">✅ Plano de Corte Calculado</div>
+  <div class="otabs" id="otabs"></div>
+  <div class="ocont" id="ocont"></div>
+  <div class="sep"></div>
+  <div class="btn-row">
+    <button class="btn btn-ok" onclick="exportar()">📥 Exportar Planilha (.xlsx)</button>
+    <span class="sm" id="es"></span>
+  </div>
+</div>
+
+
+<!-- ALOCACAO DE ROLOS v2.8.0 -->
+<div class="card" id="card-alocacao">
+  <div class="ct">
+    <span>&#128230; Alocacao de Rolos</span>
+    
+  </div>
+
+  <!-- Parametros de alocacao -->
+  <div class="g3" style="margin-bottom:10px">
+    <div class="field">
+      <label>Margem de faca por sub-enfesto (m)</label>
+      <input type="number" id="aloc-margem" value="0.10" step="0.01" min="0">
+      <div class="hint">Folga nas extremidades de cada sub-enfesto (cabeca + cauda).</div>
+    </div>
+    <div class="field">
+      <label>Folga de incerteza do rolo (%)</label>
+      <input type="number" id="aloc-folga" value="3" step="0.5" min="0" max="20">
+      <div class="hint">Desconto sobre o comprimento nominal (3% = default).</div>
+    </div>
+    <div class="field">
+      <label>Ponta minima util (m)</label>
+      <input type="number" id="aloc-ponta-min" value="0.5" step="0.1" min="0">
+      <div class="hint">Pontas maiores que este valor vao para estoque; menores sao refugo.</div>
+    </div>
+  </div>
+    
+
+  <!-- Input manual de rolos por cor -->
+  <div id="aloc-rolos-por-cor">
+    <div style="font-size:12px;font-weight:600;color:var(--tx2);margin-bottom:6px">
+      Rolos por cor (comprimentos em metros, separados por virgula):
+    </div>
+    <div id="aloc-cores-lista" style="display:flex;flex-direction:column;gap:6px"></div>
+    <div id="aloc-sem-cores" class="hint" style="display:none">
+      Calcule um plano primeiro para ver as cores disponíveis.
+    </div>
+    <button class="btn btn-s btn-sm" style="margin-top:8px" onclick="adicionarCorManual()">+ Adicionar cor manualmente</button>
+  </div>
+
+  <div class="btn-row" style="margin-top:10px">
+    <button class="btn btn-p" onclick="iniciarAlocacao()">&#128230; Alocar Rolos</button>
+    <span class="sm" id="aloc-st"></span>
+  </div>
+
+  <!-- Resultado da alocacao -->
+  <div id="aloc-resultado" style="display:none;margin-top:12px"></div>
+</div>
+
+<!-- UPDATE BANNER -->
+<div id="update-banner" style="display:none;background:var(--okb);border:1px solid var(--ok);border-radius:var(--r);padding:10px 14px;margin-bottom:10px;flex-direction:row;align-items:center;gap:8px">
+  <span style="font-weight:600;color:var(--ok)" id="update-msg"></span>
+  <button class="btn btn-s btn-sm" style="background:var(--ok);color:#fff;border-color:var(--ok)" onclick="aplicarUpdate()">Atualizar agora</button>
+  <span class="sm" id="update-st"></span>
+</div>
+</div><!-- /wrap -->
+<script>
+// ── Estado ───────────────────────────────────────────────────────────────────
+const TAMS_PADRAO = ['XPP','PP','P','M','G'];  // GG e XG removidos do padrão
+let tamanhos = ['PP','P','M','G'];  // Padrão sem XPP, GG, XG
+let cores = [];
+let refs = [];
+let refAtiva = null;
+let pid = 1;
+let resultado = null;
+let _abortCtrl = null;
+let _calculoCancelado = false;
+
+function cancelarCalculo() {
+  _calculoCancelado = true;
+  if (_abortCtrl) _abortCtrl.abort();
+  document.getElementById('btn-cancel').style.display = 'none';
+}
+let tabIndexBase = 100; // base para tabindex da grade
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+window.onload = async () => {
+  renderTams(); renderTol();
+  await carregarDados();
+  addRef();
+  try { atualizarCoresAlocacao(); } catch(e) {}
+  try { setTimeout(verificarUpdate, 3000); } catch(e) {}
+  sincPeso('enc');
+  try { const d = await (await fetch('/versao')).json(); document.getElementById('ver-sp').textContent='v'+d.versao; } catch(e){}
+  try { const d = await (await fetch('/config_pub')).json();
+    if (!d.tem_api_key) document.getElementById('api-box').style.display='block';
+  } catch(e){}
+};
+
+async function carregarDados() {
+  // Carregar parâmetros salvos
+  try {
+    const p = await (await fetch('/params')).json();
+    if (p.consumo)    document.getElementById('consumo').value    = p.consumo;
+    if (p.mesa)       document.getElementById('mesa').value       = p.mesa;
+    if (p.max_folhas) document.getElementById('max_folhas').value = p.max_folhas;
+    if (p.num_opcoes) document.getElementById('num_opcoes').value = p.num_opcoes;
+    if (p.tol_abs)    document.getElementById('tol_abs').value    = p.tol_abs;
+    if (p.tol_pct)    document.getElementById('tol_pct').value    = p.tol_pct;
+    if (p.criterio)   document.getElementById('criterio').value   = p.criterio;
+    if (p.peso_enc !== undefined) document.getElementById('peso_enc').value = p.peso_enc;
+    if (p.peso_op  !== undefined) document.getElementById('peso_op').value  = p.peso_op;
+    if (p.timeout)    document.getElementById('timeout').value    = p.timeout;
+    // Tamanhos
+    if (p.tamanhos && p.tamanhos.length) {
+      tamanhos = p.tamanhos;
+      renderTams();
+      renderTol();
+    }
+    // Regras especiais
+    if (p.regras_especiais) {
+      setTimeout(() => {
+        Object.entries(p.regras_especiais).forEach(([t, r]) => {
+          const at = document.getElementById(`tat_${t}`);
+          const lo = document.getElementById(`tlo_${t}`);
+          const hi = document.getElementById(`thi_${t}`);
+          if (at) at.checked = true;
+          if (lo && r.lo !== undefined) lo.value = r.lo;
+          if (hi && r.hi !== undefined) hi.value = r.hi;
+        });
+      }, 100);
+    }
+    sincPeso('enc');
+  } catch(e) {}
+
+  // Carregar cadastro de cores
+  try {
+    const d = await (await fetch('/cores')).json();
+    if (d.cores && d.cores.length) {
+      d.cores.forEach(c => { if (!cadastroCores.includes(c)) cadastroCores.push(c); });
+      // Ativar todas por padrão na sessão
+      cores = [...cadastroCores];
+    }
+    renderCoresGrid();
+  } catch(e) {}
+}
+
+// ── Pesos vinculados (soma = 10) ──────────────────────────────────────────────
+function sincPeso(alterado) {
+  const enc = document.getElementById('peso_enc');
+  const op  = document.getElementById('peso_op');
+  const tot = document.getElementById('peso-total');
+  let vEnc = parseInt(enc.value) || 0;
+  let vOp  = parseInt(op.value)  || 0;
+  if (alterado === 'enc') {
+    vEnc = Math.max(0, Math.min(10, vEnc));
+    vOp  = 10 - vEnc;
+    enc.value = vEnc; op.value = vOp;
+  } else {
+    vOp  = Math.max(0, Math.min(10, vOp));
+    vEnc = 10 - vOp;
+    op.value = vOp; enc.value = vEnc;
+  }
+  const soma = vEnc + vOp;
+  tot.textContent = `= ${soma} ${soma===10?'✓':'✗'}`;
+  tot.className = 'peso-total' + (soma!==10?' err':'');
+}
+
+// ── Tamanhos ──────────────────────────────────────────────────────────────────
+function renderTams() {
+  document.getElementById('tam-btns').innerHTML = TAMS_PADRAO.map(t =>
+    `<div class="tt2 ${tamanhos.includes(t)?'at':''}" onclick="toggleTam('${t}')">${t}</div>`
+  ).join('');
+}
+function toggleTam(t) {
+  tamanhos = tamanhos.includes(t)
+    ? (tamanhos.length>1 ? tamanhos.filter(x=>x!==t) : tamanhos)
+    : [...tamanhos,t].sort((a,b)=>TAMS_PADRAO.indexOf(a)-TAMS_PADRAO.indexOf(b));
+  renderTams(); renderTol();
+  refs.forEach(r=>renderPanel(r.id));
+}
+
+// ── Tolerância ────────────────────────────────────────────────────────────────
+function renderTol() {
+  document.getElementById('tol-body').innerHTML = tamanhos.map(t =>
+    `<tr><td><b>${t}</b></td>
+     <td><input type="number" id="tlo_${t}" placeholder="(auto)" style="width:58px"></td>
+     <td><input type="number" id="thi_${t}" placeholder="(auto)" value="${t==='G'?0:''}" style="width:58px"></td>
+     <td><input type="checkbox" id="tat_${t}" ${t==='G'?'checked':''}></td></tr>`
+  ).join('');
+}
+function lerRegras() {
+  const r={};
+  tamanhos.forEach(t=>{
+    if(document.getElementById(`tat_${t}`)?.checked){
+      const lo=document.getElementById(`tlo_${t}`)?.value;
+      const hi=document.getElementById(`thi_${t}`)?.value;
+      const o={};
+      if(lo!=='') o.lo=parseInt(lo);
+      if(hi!=='') o.hi=parseInt(hi);
+      if(Object.keys(o).length) r[t]=o;
+    }
+  });
+  return r;
+}
+
+// ── Sistema de Cores ──────────────────────────────────────────────────────────
+// cadastroCores = lista permanente de todas as cores conhecidas
+// cores = subset ativo para o cálculo atual
+
+let cadastroCores = [];
+
+function toggleCadastroCores() {
+  const p = document.getElementById('cadastro-panel');
+  const b = document.getElementById('btn-cadastro-toggle');
+  if (p.style.display === 'none') {
+    p.style.display = 'block'; b.textContent = '✕ Fechar cadastro';
+    renderCoresGerenciar();
+  } else {
+    p.style.display = 'none'; b.textContent = '⚙️ Gerenciar cadastro';
+  }
+}
+
+function addCorCadastro() {
+  const inp = document.getElementById('nova-cor');
+  const nome = inp.value.trim().toUpperCase();
+  if (!nome || cadastroCores.includes(nome)) { inp.value=''; return; }
+  cadastroCores.push(nome);
+  if (!cores.includes(nome)) cores.push(nome);
+  syncCoresToRefs(nome);
+  inp.value='';
+  renderCoresGrid();
+  renderCoresGerenciar();
+  salvarCores();
+}
+
+function removerCorCadastro(c) {
+  cadastroCores = cadastroCores.filter(x => x !== c);
+  cores = cores.filter(x => x !== c);
+  refs.forEach(r => delete r.grade[c]);
+  renderCoresGrid();
+  renderCoresGerenciar();
+  refs.forEach(r => renderPanel(r.id));
+  salvarCores();
+}
+
+function toggleCorSessao(c) {
+  if (cores.includes(c)) {
+    cores = cores.filter(x => x !== c);
+  } else {
+    cores.push(c);
+    syncCoresToRefs(c);
+  }
+  renderCoresGrid();
+  refs.forEach(r => renderPanel(r.id));
+}
+
+function ativarTodasCores() {
+  cores = [...cadastroCores];
+  cadastroCores.forEach(c => syncCoresToRefs(c));
+  renderCoresGrid();
+  refs.forEach(r => renderPanel(r.id));
+}
+
+function desativarTodasCores() {
+  cores = [];
+  renderCoresGrid();
+  refs.forEach(r => renderPanel(r.id));
+}
+
+function renderCoresGrid() {
+  const el = document.getElementById('cores-grid');
+  if (!el) return;
+  if (cadastroCores.length === 0) {
+    el.innerHTML = '<span class="sm">Nenhuma cor no cadastro.</span>';
+    return;
+  }
+  el.innerHTML = cadastroCores.map(c => {
+    const ativa = cores.includes(c);
+    return `<div class="cor-item ${ativa?'ativa':'inativa'}" onclick="toggleCorSessao('${c}')" title="${ativa?'Ativa — clique para desativar':'Inativa — clique para ativar'}">
+      ${ativa ? '✓' : '○'} ${c}
+    </div>`;
+  }).join('');
+  // Mostrar resumo
+  const atv = cores.length;
+  const total = cadastroCores.length;
+}
+
+function renderCoresGerenciar() {
+  const el = document.getElementById('cores-gerenciar');
+  if (!el) return;
+  el.innerHTML = cadastroCores.map(c =>
+    `<span class="chip">${c}<span class="cx" onclick="removerCorCadastro('${c}')" title="Remover do cadastro">×</span></span>`
+  ).join('');
+}
+
+function syncCoresToRefs(c) {
+  refs.forEach(r => { if(!r.grade[c]){ r.grade[c]={}; tamanhos.forEach(t=>{r.grade[c][t]=0;}); } });
+}
+
+async function salvarCores() {
+  try {
+    await fetch('/salvar_cores', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({cores: cadastroCores})
+    });
+  } catch(e) {}
+}
+
+// ── Upload ────────────────────────────────────────────────────────────────────
+function handleDrop(e) {
+  e.preventDefault(); document.getElementById('uzone').classList.remove('drag');
+  const f=e.dataTransfer.files[0]; if(f) handleFile(f);
+}
+async function handleFile(file) {
+  if(!file) return;
+  const st=document.getElementById('upload-st');
+  st.textContent=`â³ Processando ${file.name}...`;
+  const isImg=/\.(jpg|jpeg|png)$/i.test(file.name);
+  const reader=new FileReader();
+  reader.onload=async(e)=>{
+    const b64=isImg
+      ? btoa(String.fromCharCode(...new Uint8Array(e.target.result)))
+      : btoa(String.fromCharCode(...new Uint8Array(e.target.result)));
+    const mime=file.name.endsWith('.png')?'image/png':'image/jpeg';
+    try{
+      const rota=isImg?'/upload_imagem':'/upload';
+      const payload=isImg
+        ? {nome:file.name,dados:b64,mime}
+        : {nome:file.name,dados:b64};
+      const resp=await fetch(rota,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      const data=await resp.json();
+      if(data.erro){st.textContent='❌ '+data.erro;return;}
+      aplicarUpload(data, file.name);
+      st.innerHTML=`✅ ${data.n_cores} cores importadas de <b>${file.name}</b>`;
+    }catch(err){st.textContent='❌ Erro: '+err.message;}
+  };
+  reader.readAsArrayBuffer(file);
+}
+function aplicarUpload(data, filename) {
+  // Tamanhos
+  if(data.tamanhos?.length){
+    data.tamanhos.forEach(t=>{ if(!tamanhos.includes(t)) tamanhos=[...tamanhos,t].sort((a,b)=>TAMS_PADRAO.indexOf(a)-TAMS_PADRAO.indexOf(b)); });
+    renderTams(); renderTol();
+  }
+  // Cores
+  Object.keys(data.grade).forEach(c=>{
+    if(!cadastroCores.includes(c)) cadastroCores.push(c);
+    if(!cores.includes(c)) cores.push(c);
+  });
+  renderCoresGrid(); renderCoresGerenciar(); salvarCores();
+  // Grade na ref ativa
+  const ref=refs.find(r=>r.id===refAtiva);
+  if(ref){
+    if(data.referencia) ref.nome=data.referencia;
+    Object.entries(data.grade).forEach(([c,qtds])=>{
+      if(!ref.grade[c]) ref.grade[c]={};
+      Object.entries(qtds).forEach(([t,v])=>{ref.grade[c][t]=v;});
+    });
+    refs.forEach(r=>{
+      cores.forEach(c=>{ if(!r.grade[c]){r.grade[c]={};tamanhos.forEach(t=>{r.grade[c][t]=0;});} });
+    });
+    renderPanel(refAtiva);
+  }
+}
+
+// ── Referências ───────────────────────────────────────────────────────────────
+function addRef(nome) {
+  const id=pid++;
+  const grade={};
+  cores.forEach(c=>{grade[c]={};tamanhos.forEach(t=>{grade[c][t]=0;});});
+  // Herdar consumo da última ref existente; senão usar o valor salvo nos params
+  const consumoPadrao = refs.length>0
+    ? refs[refs.length-1].consumo
+    : (parseFloat(document.getElementById('consumo').value) || 1.0645);
+  refs.push({id,nome:nome||'',grade,consumo:consumoPadrao});
+  refAtiva=id; renderAbas(); renderPanel(id);
+  document.getElementById('info-refs').textContent=refs.length>1?`${refs.length} referências`:'';
+}
+function remRef(id) {
+  if(refs.length<=1){alert('Mínimo 1 referência.');return;}
+  refs=refs.filter(r=>r.id!==id);
+  document.getElementById(`rp_${id}`)?.remove();
+  if(refAtiva===id) refAtiva=refs[refs.length-1].id;
+  renderAbas();
+  document.getElementById('info-refs').textContent=refs.length>1?`${refs.length} referências`:'';
+}
+function ativarRef(id){refAtiva=id;renderAbas();}
+function renderAbas() {
+  document.getElementById('ref-abas').innerHTML=refs.map((r,i)=>
+    `<div class="ref-aba ${r.id===refAtiva?'at':''}" onclick="ativarRef(${r.id})">
+      <span class="ridx">${i+1}</span>
+      <span id="rna_${r.id}">${r.nome||'Sem nome'}</span>
+      <span class="xr" onclick="event.stopPropagation();remRef(${r.id})">×</span>
+    </div>`
+  ).join('');
+  refs.forEach(r=>{ const p=document.getElementById(`rp_${r.id}`); if(p) p.className=`ref-pan ${r.id===refAtiva?'at':''}`; });
+}
+
+function renderPanel(id) {
+  const ref=refs.find(r=>r.id===id); if(!ref) return;
+  const body=document.getElementById('ref-body');
+  let pan=document.getElementById(`rp_${id}`);
+  if(!pan){pan=document.createElement('div');pan.id=`rp_${id}`;body.appendChild(pan);}
+  pan.className=`ref-pan ${id===refAtiva?'at':''}`;
+
+  // Sincronizar grade
+  cores.forEach(c=>{
+    if(!ref.grade[c]) ref.grade[c]={};
+    tamanhos.forEach(t=>{if(ref.grade[c][t]==null) ref.grade[c][t]=0;});
+  });
+
+  // Calcular totais
+  const totTam={};
+  tamanhos.forEach(t=>{ totTam[t]=cores.reduce((s,c)=>(ref.grade[c]?.[t]||0)+s,0); });
+  const totGeral=Object.values(totTam).reduce((a,b)=>a+b,0);
+
+  let gradeHtml='';
+  if(cores.length===0){
+    gradeHtml='<div class="hint">Adicione cores na seção "Cores" acima.</div>';
+  } else {
+    // Calcular tabindex sequencial: percorre linha por linha, coluna por coluna
+    const nCores=cores.length; const nTams=tamanhos.length;
+    gradeHtml=`<div class="gw"><table class="gt">
+      <thead><tr><th>Cor</th>${tamanhos.map(t=>`<th>${t}</th>`).join('')}<th>Total</th></tr></thead>
+      <tbody>`;
+    cores.forEach((c,ci)=>{
+      const totCor=tamanhos.reduce((s,t)=>(ref.grade[c]?.[t]||0)+s,0);
+      gradeHtml+=`<tr><td>${c}</td>`;
+      tamanhos.forEach((t,ti)=>{
+        // tabindex: percorre da esquerda p/ direita, linha por linha
+        const tidx = tabIndexBase + ci*nTams + ti + 1;
+        const v=ref.grade[c]?.[t]||0;
+        const display = v===0 ? '' : String(v);
+        gradeHtml+=`<td><input type="number" min="0"
+          value="${display}"
+          placeholder=""
+          tabindex="${tidx}"
+          data-ref="${id}" data-cor="${c}" data-tam="${t}"
+          onchange="sgr(${id},'${c}','${t}',this.value)"
+          onfocus="this.select()"
+          onkeydown="navGrade(event,${id},${ci},${ti},${nCores},${nTams})"
+        ></td>`;
+      });
+      gradeHtml+=`<td class="tot-cor">${totCor||''}</td></tr>`;
+    });
+    gradeHtml+=`<tr class="tot-row"><td>TOTAL</td>
+      ${tamanhos.map(t=>`<td>${totTam[t]||''}</td>`).join('')}
+      <td>${totGeral||''}</td>
+    </tr></tbody></table></div>`;
+  }
+
+  pan.innerHTML=`
+    <div style="display:grid;grid-template-columns:220px 155px;gap:12px;margin-bottom:12px">
+      <div class="field" style="margin-bottom:0">
+        <label>Nome da referência <span style="font-weight:400;color:var(--tx3)">(opcional)</span></label>
+        <input type="text" id="rni_${id}" value="${ref.nome}"
+               oninput="updNome(${id},this.value)"
+               placeholder="Ex: CALÇA JEANS MOD.12">
+      </div>
+      <div class="field" style="margin-bottom:0">
+        <label>Consumo por peça (m)</label>
+        <input type="number" id="rcons_${id}" value="${ref.consumo||1.0645}" step="0.0001" min="0.1"
+               oninput="refs.find(r=>r.id===${id}).consumo=parseFloat(this.value)||1.0645">
+      </div>
+    </div>
+    <div style="font-size:11px;font-weight:600;color:var(--tx2);margin-bottom:5px">Grade de peças por cor × tamanho</div>
+    ${gradeHtml}`;
+  renderAbas();
+}
+
+// Navegação Tab/Shift+Tab na grade
+function navGrade(e, refId, ci, ti, nCores, nTams) {
+  if(e.key !== 'Tab') return;
+  e.preventDefault();
+  const fwd = !e.shiftKey;
+  let nci=ci, nti=ti;
+  if(fwd){ nti++; if(nti>=nTams){nti=0;nci++;} if(nci>=nCores){nci=0;} }
+  else   { nti--; if(nti<0){nti=nTams-1;nci--;} if(nci<0){nci=nCores-1;} }
+  const tidx = tabIndexBase + nci*nTams + nti + 1;
+  const el = document.querySelector(`input[tabindex="${tidx}"][data-ref="${refId}"]`);
+  if(el){el.focus();el.select();}
+}
+
+function sgr(id,cor,tam,val){
+  const ref=refs.find(r=>r.id===id); if(!ref.grade[cor]) ref.grade[cor]={};
+  ref.grade[cor][tam]=parseInt(val)||0;
+  // Atualizar totais sem rerenderizar tudo
+  atualizarTotais(id);
+}
+
+function atualizarTotais(id) {
+  const ref=refs.find(r=>r.id===id); if(!ref) return;
+  const nTams=tamanhos.length;
+  // Atualizar coluna total por cor
+  cores.forEach((c,ci)=>{
+    const tot=tamanhos.reduce((s,t)=>(ref.grade[c]?.[t]||0)+s,0);
+    const el=document.querySelector(`#rp_${id} tr:nth-child(${ci+1}) .tot-cor`);
+    if(el) el.textContent=tot||'';
+  });
+  // Atualizar linha total
+  const totTam={};
+  tamanhos.forEach(t=>{ totTam[t]=cores.reduce((s,c)=>(ref.grade[c]?.[t]||0)+s,0); });
+  const totGeral=Object.values(totTam).reduce((a,b)=>a+b,0);
+  const totRow=document.querySelector(`#rp_${id} .tot-row`);
+  if(totRow){
+    const tds=totRow.querySelectorAll('td');
+    tamanhos.forEach((t,i)=>{ if(tds[i+1]) tds[i+1].textContent=totTam[t]||''; });
+    if(tds[tamanhos.length+1]) tds[tamanhos.length+1].textContent=totGeral||'';
+  }
+}
+
+function updNome(id,nome){
+  const ref=refs.find(r=>r.id===id); if(ref) ref.nome=nome;
+  const el=document.getElementById(`rna_${id}`); if(el) el.textContent=nome||'Sem nome';
+}
+
+// ── Exemplo ───────────────────────────────────────────────────────────────────
+function carregarExemplo(){
+  cores=[]; refs=[]; pid=1; document.getElementById('ref-body').innerHTML='';
+  tamanhos=['XPP','PP','P','M','G']; renderTams(); renderTol();
+  cadastroCores = [];
+  ['BLUES','JAZZ','PRETO','SAMBA','VALSA','VANILLA'].forEach(c=>{
+    cadastroCores.push(c); cores.push(c);
+  });
+  renderCoresGrid(); renderCoresGerenciar();
+  addRef('SS27 — REF 001');
+  refs[0].grade={
+    BLUES:  {XPP:1,PP:23,P:34,M:25,G:9},
+    JAZZ:   {XPP:2,PP:24,P:36,M:25,G:7},
+    PRETO:  {XPP:1,PP:25,P:30,M:23,G:12},
+    SAMBA:  {XPP:3,PP:34,P:52,M:31,G:6},
+    VALSA:  {XPP:6,PP:53,P:55,M:27,G:5},
+    VANILLA:{XPP:4,PP:35,P:50,M:29,G:5},
+  };
+  renderPanel(refs[0].id);
+  setTimeout(()=>{
+    const hi=document.getElementById('thi_G'); const at=document.getElementById('tat_G');
+    if(hi) hi.value=2; if(at) at.checked=true;
+    document.getElementById('sg').textContent='Exemplo Charth carregado ✓';
+  },100);
+}
+
+// ── Helpers para agrupamentos multi-ref ──────────────────────────────────────
+function _combis(arr, k) {
+  if (k === 0) return [[]];
+  if (k > arr.length) return [];
+  const [h, ...t] = arr;
+  return [..._combis(t, k-1).map(c=>[h,...c]), ..._combis(t, k)];
+}
+
+function _particoes(idxs) {
+  if (!idxs.length) return [[]];
+  const [first, ...rest] = idxs;
+  const sub = _particoes(rest);
+  const out = [];
+  for (const p of sub) {
+    out.push([[first], ...p]);
+    for (let i = 0; i < p.length; i++)
+      out.push(p.map((g, j) => j===i ? [...g, first].sort((a,b)=>a-b) : g));
+  }
+  return out;
+}
+
+function _gradeGrupo(grupoIdxs) {
+  const grade = {};
+  const consumosG = grupoIdxs.map(ri => {
+    const r = refs[ri];
+    return (r.consumo && r.consumo > 0) ? r.consumo : 1.0645;
+  });
+  grupoIdxs.forEach(ri => {
+    const ref = refs[ri];
+    cores.forEach(c => {
+      if (!tamanhos.some(t => (ref.grade[c]?.[t] || 0) > 0)) return;
+      const chave = grupoIdxs.length > 1 ? `${ref.nome || 'Ref'+(ri+1)}|${c}` : c;
+      grade[chave] = {};
+      tamanhos.forEach(t => { grade[chave][t] = ref.grade[c]?.[t] ?? 0; });
+    });
+  });
+  return {
+    grade,
+    consumo: Math.max(...consumosG),
+    referencia: grupoIdxs.map(ri => refs[ri].nome || `Ref ${ri+1}`).join(' + ')
+  };
+}
+
+// ── Calcular ──────────────────────────────────────────────────────────────────
+async function _drainProgresso() {
+  try{const d=await(await fetch('/progresso')).json();d.msgs.forEach(msg=>_atualizarProgresso(msg));}catch(e){}
+}
+
+function montarGradeRef(ref) {
+  const grade={};
+  cores.forEach(c=>{
+    const temPeca=tamanhos.some(t=>(ref.grade[c]?.[t]||0)>0);
+    if(!temPeca) return;
+    grade[c]={};
+    tamanhos.forEach(t=>{grade[c][t]=ref.grade[c]?.[t]??0;});
+  });
+  return grade;
+}
+
+function montarGrade() {
+  const grade={};
+  refs.forEach((ref,ri)=>{
+    cores.forEach(c=>{
+      // Ignorar cores sem nenhuma peça nesta referência
+      const temPeca=tamanhos.some(t=>(ref.grade[c]?.[t]||0)>0);
+      if(!temPeca) return;
+      const chave=refs.length>1?`${ref.nome||'Ref'+(ri+1)}|${c}`:c;
+      grade[chave]={};
+      tamanhos.forEach(t=>{grade[chave][t]=ref.grade[c]?.[t]??0;});
+    });
+  });
+  return {grade, referencia:refs.map((r,i)=>r.nome||`Ref ${i+1}`).join(' + ')};
+}
+
+async function calcular(){
+  const consumos = refs.map(r => r.consumo || parseFloat(document.getElementById('consumo').value) || 1.0645);
+  const mesa       = parseFloat(document.getElementById('mesa').value);
+  const max_folhas = parseInt(document.getElementById('max_folhas').value);
+  const num_opcoes = parseInt(document.getElementById('num_opcoes').value);
+  const tol_abs    = parseInt(document.getElementById('tol_abs').value);
+  const tol_pct    = parseInt(document.getElementById('tol_pct').value);
+  const criterio   = document.getElementById('criterio').value;
+  const peso_enc   = parseFloat(document.getElementById('peso_enc').value);
+  const peso_op    = parseFloat(document.getElementById('peso_op').value);
+  const timeout    = parseInt(document.getElementById('timeout').value);
+  const regras     = lerRegras();
+
+  const erros=[];
+  if(isNaN(mesa)||mesa<=0) erros.push('Mesa inválida.');
+  if(isNaN(max_folhas)||max_folhas<=0) erros.push('Limite de folhas inválido.');
+  if(cores.length===0) erros.push('Adicione pelo menos uma cor.');
+
+  const eb=document.getElementById('ebox');
+  if(erros.length){eb.textContent=erros.join(' ');eb.style.display='block';return;}
+  eb.style.display='none';
+
+  document.getElementById('pb').style.display='block';
+  document.getElementById('rb').style.display='none';
+  document.getElementById('btn-calc').disabled=true;
+  const logEl=document.getElementById('pbl');
+  logEl.textContent='';
+  document.getElementById('pbb').style.width='3%';
+  document.getElementById('prog-etapas').innerHTML='';
+  const L=m=>{logEl.textContent+=m+'\n';logEl.scrollTop=logEl.scrollHeight;};
+
+  const baseParams={mesa,max_folhas,num_opcoes,tol_abs,tol_pct,criterio,peso_enc,peso_op,timeout,tamanhos,regras_especiais:regras};
+
+  // ── Multi-referência: testa todos os agrupamentos possíveis ──
+  if(refs.length > 1){
+    const N = refs.length;
+    const idxs = refs.map((_, i) => i);
+    const maxSz = N <= 4 ? N : Math.min(N, 3);
+
+    // Orçamento total = timeout × N (distribuído dinamicamente)
+    const totalBudget = timeout * N;
+
+    _calculoCancelado = false;
+    _abortCtrl = new AbortController();
+    document.getElementById('btn-cancel').style.display = 'inline-flex';
+
+    const cache={};
+
+    // Subgrupos (tamanho >= 2), do maior para o menor
+    const subgrupos=[];
+    for(let sz=maxSz;sz>=2;sz--)
+      _combis(idxs,sz).forEach(c=>subgrupos.push(c));
+
+    const totalSteps=subgrupos.length+N;
+    let step=0, budgetGasto=0;
+
+    L(`📋 ${N} refs — ${subgrupos.length} agrupamentos + ${N} individuais`);
+    L(`   Orçamento total: ${totalBudget}s (distribuído dinamicamente)\n`);
+
+    // Helper: calcula timeout para o próximo grupo dado o orçamento restante
+    const tProximo = (stepsRestantes) =>
+      Math.max(20, Math.floor((totalBudget - budgetGasto) / Math.max(1, stepsRestantes)));
+
+    // ── Fase 1: Agrupamentos via /calcular_grupo (cada ref com consumo próprio) ──
+    for(const grupo of subgrupos){
+      if(_calculoCancelado){ L('⛔ Cálculo cancelado.'); break; }
+      const key=[...grupo].sort((a,b)=>a-b).join(',');
+      step++;
+      const refsG=grupo.map(ri=>({
+        nome:refs[ri].nome||`Ref ${ri+1}`,
+        grade:montarGradeRef(refs[ri]),
+        consumo:(refs[ri].consumo&&refs[ri].consumo>0)?refs[ri].consumo:1.0645,
+      }));
+      const rG=grupo.map(ri=>refs[ri].nome||`Ref ${ri+1}`).join(' + ');
+      const tG=tProximo(totalSteps - step + 1);
+      const lbl=rG.length>28?rG.substring(0,25)+'…':rG;
+      L(`[${step}/${totalSteps}] ${rG} combinado (${tG}s, orç.restante: ${Math.max(0,Math.round(totalBudget-budgetGasto))}s)...`);
+      _setEtapa(`g${key}`,lbl,'atual');
+      if(!refsG.some(r=>Object.values(r.grade).some(g=>Object.values(g).some(v=>v>0)))){
+        cache[key]={erro:'Grade vazia'}; _setEtapa(`g${key}`,'⚠️ Vazia','erro'); continue;
+      }
+      const t0=performance.now();
+      try{
+        const resp=await fetch('/calcular_grupo',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({...baseParams,refs:refsG,referencia:rG,timeout:tG}),
+          signal:_abortCtrl.signal});
+        const d=await resp.json();
+        await _drainProgresso();
+        budgetGasto+=(performance.now()-t0)/1000;
+        if(d.erro){
+          L(`  ❌ Sem solução combinada`); cache[key]={erro:d.erro}; _setEtapa(`g${key}`,'❌ Sem sol.','erro');
+        } else {
+          const n=d.solucoes[0].resumo.n_mapas;
+          L(`  ✅ ${n} enfesto(s) combinado(s)`); cache[key]={nEnfestos:n,tipo:'multiref',data:d}; _setEtapa(`g${key}`,`✅ ${n} enf.`,'ok');
+        }
+      }catch(e){
+        budgetGasto+=(performance.now()-t0)/1000;
+        if(e.name==='AbortError'){ L('⛔ Cancelado.'); cache[key]={erro:'Cancelado'}; break; }
+        L(`  ❌ ${e.message}`); cache[key]={erro:e.message}; _setEtapa(`g${key}`,'❌ Erro','erro');
+      }
+    }
+
+    // ── Fase 2: Individuais ──
+    for(let ri=0;ri<N;ri++){
+      if(_calculoCancelado){ L('⛔ Cálculo cancelado.'); break; }
+      const ref=refs[ri]; const key=String(ri); step++;
+      const gradeR=montarGradeRef(ref);
+      const consR=(ref.consumo&&ref.consumo>0)?ref.consumo:1.0645;
+      const tI=tProximo(totalSteps - step + 1);
+      L(`[${step}/${totalSteps}] ${ref.nome||'Ref '+(ri+1)} individual (${tI}s, ${consR.toFixed(4)}m/pça)...`);
+      _setEtapa(`i${ri}`,ref.nome||'Ref '+(ri+1),'atual');
+      if(!Object.values(gradeR).some(g=>Object.values(g).some(v=>v>0))){
+        cache[key]={erro:'Sem peças'}; _setEtapa(`i${ri}`,'⚠️ Sem peças','erro'); continue;
+      }
+      const t0=performance.now();
+      try{
+        const resp=await fetch('/calcular',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({...baseParams,grade:gradeR,referencia:ref.nome||`Ref ${ri+1}`,consumo:consR,timeout:tI}),
+          signal:_abortCtrl.signal});
+        const d=await resp.json();
+        await _drainProgresso();
+        budgetGasto+=(performance.now()-t0)/1000;
+        if(d.erro){
+          L(`  ❌ ${d.erro}`); cache[key]={erro:d.erro}; _setEtapa(`i${ri}`,'❌ Sem sol.','erro');
+        } else {
+          const n=d.solucoes[0].resumo.n_mapas;
+          L(`  ✅ ${n} enfesto(s)`); cache[key]={nEnfestos:n,tipo:'single',data:d}; _setEtapa(`i${ri}`,`✅ ${n} enf.`,'ok');
+        }
+      }catch(e){
+        budgetGasto+=(performance.now()-t0)/1000;
+        if(e.name==='AbortError'){ L('⛔ Cancelado.'); cache[key]={erro:'Cancelado'}; break; }
+        L(`  ❌ ${e.message}`); cache[key]={erro:e.message}; _setEtapa(`i${ri}`,'❌ Erro','erro');
+      }
+    }
+
+    document.getElementById('pbb').style.width='100%';
+    document.getElementById('btn-cancel').style.display='none';
+
+    // ── Fase 3: Avaliar todos os particionamentos (com o que foi calculado) ──
+    const todasParticoes=_particoes(idxs);
+    const validos=[];
+    for(const particao of todasParticoes){
+      let total=0,ok=true;
+      const grupos=[];
+      for(const g of particao){
+        const key=[...g].sort((a,b)=>a-b).join(',');
+        const r=cache[key];
+        if(!r||r.erro){ok=false;break;}
+        total+=r.nEnfestos;
+        grupos.push({idxs:g,key,nEnfestos:r.nEnfestos,tipo:r.tipo,data:r.data});
+      }
+      if(ok) validos.push({grupos,total});
+    }
+    validos.sort((a,b)=>a.total-b.total);
+
+    const foiCancelado=_calculoCancelado;
+    if(validos.length===0){
+      L(foiCancelado?'\n⛔ Cancelado — nenhuma combinação completa encontrada até agora.'
+        :'\n❌ Nenhuma combinação obteve solução completa.');
+      const parciais=Object.entries(cache).filter(([,v])=>v.data).map(([k,v])=>`[${k}]: ${v.nEnfestos} enf.`);
+      if(parciais.length) L(`Parciais: ${parciais.join(' · ')}`);
+      _setEtapa('fim',foiCancelado?'⛔ Cancelado':'❌ Sem solução','erro');
+    } else {
+      const best=validos[0];
+      const descBest=best.grupos.map(g=>g.idxs.length===1
+        ?(refs[g.idxs[0]].nome||'Ref '+(g.idxs[0]+1))
+        :'['+g.idxs.map(i=>refs[i].nome||'Ref '+(i+1)).join('+')+']'
+      ).join(' + ');
+      L(`\n🏆 MELHOR${foiCancelado?' (parcial)':''}: ${descBest} = ${best.total} enfestos`);
+      _setEtapa('fim',`✅ ${best.total} enf.${foiCancelado?' ⛔':''}`,foiCancelado?'erro':'ok');
+      renderResultadoGrupos(validos);
+    }
+    document.getElementById('btn-calc').disabled=false;
+    _abortCtrl=null;
+    return;
+  }
+
+  // ── Referência única ──
+  const {grade,referencia}=montarGrade();
+  if(!Object.values(grade).some(g=>Object.values(g).some(v=>v>0))){
+    eb.textContent='Preencha a grade com as quantidades de peças.';
+    eb.style.display='block';
+    document.getElementById('btn-calc').disabled=false;
+    document.getElementById('pb').style.display='none';
+    return;
+  }
+  const consumo=consumos[0];
+  const payload={referencia,consumo,mesa,max_folhas,num_opcoes,tol_abs,tol_pct,criterio,peso_enc,peso_op,timeout,tamanhos,grade,regras_especiais:regras};
+
+  L(`Referência: ${referencia}`);
+  L(`Cores: ${cores.join(', ')} | Tamanhos: ${tamanhos.join(', ')}`);
+  L(`Mesa: ${mesa}m | Consumo: ${consumo}m | Max folhas: ${max_folhas}`);
+  L('Aguardando servidor...');
+
+  _calculoCancelado=false;
+  _abortCtrl=new AbortController();
+  document.getElementById('btn-cancel').style.display='inline-flex';
+
+  const pollingInterval=setInterval(async()=>{
+    try{const d=await(await fetch('/progresso')).json();d.msgs.forEach(msg=>_atualizarProgresso(msg));}catch(e){}
+  },600);
+
+  try{
+    const resp=await fetch('/calcular',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:_abortCtrl.signal});
+    clearInterval(pollingInterval);
+    const data=await resp.json();
+    if(data.erro){
+      L('❌ '+data.erro);
+      _setEtapa('erro','❌ Sem solução','erro');
+      document.getElementById('pbb').style.width='100%';
+      document.getElementById('btn-calc').disabled=false;
+      document.getElementById('btn-cancel').style.display='none';
+      return;
+    }
+    document.getElementById('pbb').style.width='100%';
+    L('✅ Concluído!');
+    _setEtapa('fim','✅ Concluído','ok');
+    resultado=data; renderResultado(data);
+    try { atualizarCoresAlocacao(); } catch(e) {}
+  }catch(e){
+    clearInterval(pollingInterval);
+    if(e.name==='AbortError'){
+      L('⛔ Cálculo cancelado pelo usuário.');
+      _setEtapa('fim','⛔ Cancelado','erro');
+    } else {
+      L('❌ Erro de conexão: '+e.message);
+      L(''); L('SOLUÇÃO:');
+      L('  Feche o navegador e dê duplo clique em PCP_Enfestos.vbs');
+      L('  Aguarde 2 segundos e o navegador abrirá automaticamente.');
+    }
+  }
+  document.getElementById('btn-calc').disabled=false;
+  document.getElementById('btn-cancel').style.display='none';
+  _abortCtrl=null;
+}
+
+function _atualizarProgresso(msg) {
+  const pbb = document.getElementById('pbb');
+  const logEl = document.getElementById('pbl');
+  logEl.textContent += msg + '\n';
+  logEl.scrollTop = logEl.scrollHeight;
+
+  if (msg.includes('Gerando mapas')) {
+    pbb.style.width = '12%';
+    _setEtapa('mapas', 'Gerando mapas', 'atual');
+  } else if (msg.includes('Mapas candidatos:')) {
+    pbb.style.width = '20%';
+    _setEtapa('mapas', 'Mapas gerados', 'ok');
+  } else if (msg.includes('Testando') && msg.includes('mapa')) {
+    const n = parseInt(msg.match(/Testando\s+(\d+)/)?.[1] || '1');
+    const pct = Math.min(25 + n * 14, 88);
+    pbb.style.width = pct + '%';
+    _setEtapa('solver', `Testando ${n} enfesto(s)`, 'atual');
+  } else if (msg.includes('→ Melhor:')) {
+    _setEtapa('solver', 'Solução encontrada', 'atual');
+    pbb.style.width = '90%';
+  } else if (msg.includes('✅')) {
+    pbb.style.width = '96%';
+    _setEtapa('solver', 'Otimizado!', 'ok');
+  } else if (msg.includes('Timeout')) {
+    _setEtapa('solver', 'Timeout — usando melhor', 'atual');
+  }
+}
+
+function _setEtapa(id, texto, status) {
+  const cont = document.getElementById('prog-etapas');
+  if (!cont) return;
+  let el = cont.querySelector(`[data-eid="${id}"]`);
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'prog-etapa';
+    el.setAttribute('data-eid', id);
+    cont.appendChild(el);
+  }
+  el.className = `prog-etapa ${status}`;
+  el.textContent = texto;
+}
+
+// ── Renderizar resultado ──────────────────────────────────────────────────────
+function renderResultado(data){
+  document.getElementById('rb').style.display='block';
+  const sols=data.solucoes;
+  document.getElementById('otabs').innerHTML=sols.map((s,i)=>
+    `<div class="otab ${i===0?'at':''}" onclick="atOpt(${i})" id="ot_${i}">
+      Opção ${i+1} — ${s.resumo.n_mapas} enfesto(s)
+    </div>`
+  ).join('');
+  const cmp=sols.length>1?renderCmp(sols,data.tamanhos,data.grade,data.limites):'';
+  const consumo_global = data.config?.consumo_peca_m || data.solucoes?.[0]?.resumo?.consumo_peca || 1.0645;
+  document.getElementById('ocont').innerHTML=
+    sols.map((s,i)=>`<div class="opan ${i===0?'at':''}" id="op_${i}">${renderOp(s,data.tamanhos,data.grade,data.limites,i+1,consumo_global)}</div>`).join('')+
+    (cmp?`<div class="sep"></div>${cmp}`:'');
+}
+function atOpt(i){
+  document.querySelectorAll('.otab').forEach((t,j)=>t.classList.toggle('at',j===i));
+  document.querySelectorAll('.opan').forEach((p,j)=>p.classList.toggle('at',j===i));
+}
+
+function _renderRefCard(r, ri, labelExtra){
+  if(r.erro) return `<div class="card" style="border-left:3px solid var(--er);margin-bottom:10px">
+    <div class="ct"><span>❌ ${r.refNome}</span></div>
+    <div style="color:var(--er);font-size:12px">${r.erro}</div></div>`;
+  const data=r.data, sols=data.solucoes;
+  const cg=data.config?.consumo_peca_m||1.0645;
+  const cmp=sols.length>1?renderCmp(sols,data.tamanhos,data.grade,data.limites):'';
+  const tid=`mrt${ri}`, pid=`mrp${ri}`;
+  return `<div class="card" style="border-left:3px solid var(--ac);margin-bottom:12px">
+    <div class="ct">
+      <span>📐 ${r.refNome}</span>
+      <span style="font-size:11px;color:var(--tx2)">${sols[0].resumo.n_mapas} enf. · desvio=${sols[0].resumo.desvio_total}pcs · ${sols[0].resumo.media_pecas_mapa}pç/mapa${labelExtra?` · ${labelExtra}`:''}</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:4px;margin-bottom:-1px;flex-wrap:wrap">
+      <div class="otabs" id="${tid}" style="flex:1">
+        ${sols.map((s,i)=>`<div class="otab ${i===0?'at':''}" onclick="atOptMulti('${tid}','${pid}',${i})">Opção ${i+1} — ${s.resumo.n_mapas} enf.</div>`).join('')}
+      </div>
+      <button class="btn btn-s btn-sm" onclick="exportarRef(${ri})">⬇ Exportar</button>
+    </div>
+    <div class="ocont" id="${pid}">
+      ${sols.map((s,i)=>`<div class="opan ${i===0?'at':''}" id="${pid}_${i}">${renderOp(s,data.tamanhos,data.grade,data.limites,i+1,cg)}</div>`).join('')}
+      ${cmp?`<div class="sep"></div>${cmp}`:''}
+    </div>
+  </div>`;
+}
+
+function renderResultadoComComparacao(dadoCombinado, dadosSep, totalSep){
+  window._resultadoMulti = dadosSep;
+  window._dadoCombinado  = dadoCombinado;
+  document.getElementById('rb').style.display='block';
+
+  const nc    = dadoCombinado ? dadoCombinado.solucoes[0].resumo.n_mapas : null;
+  const combOK= nc !== null;
+  const sepOK = dadosSep.some(r=>r.data);
+  const combMelhor = combOK && (!sepOK || nc <= totalSep);
+  const sepMelhor  = sepOK  && (!combOK || totalSep < nc);
+
+  let html = '';
+
+  // ── Banner de comparação ──
+  if(combOK && sepOK){
+    html += `<div style="background:var(--sf2);border:1px solid var(--bd);border-radius:var(--r);padding:12px 16px;margin-bottom:14px">
+      <div style="font-size:13px;font-weight:700;color:var(--ac);margin-bottom:10px">📊 Combinado vs Separado</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">
+        <div style="background:${combMelhor?'var(--okb)':'var(--sf)'};border:2px solid ${combMelhor?'var(--ok)':'var(--bd)'};border-radius:var(--r);padding:10px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:var(--ac)">${nc}</div>
+          <div style="font-size:11px;color:var(--tx2);margin-top:2px">enfestos combinado</div>
+          ${combMelhor?`<div style="font-size:11px;font-weight:700;color:var(--ok);margin-top:4px">✓ MELHOR</div>`:''}
+        </div>
+        <div style="background:${sepMelhor?'var(--okb)':'var(--sf)'};border:2px solid ${sepMelhor?'var(--ok)':'var(--bd)'};border-radius:var(--r);padding:10px;text-align:center">
+          <div style="font-size:22px;font-weight:700;color:var(--ac)">${totalSep}</div>
+          <div style="font-size:11px;color:var(--tx2);margin-top:2px">enfestos separados</div>
+          ${sepMelhor?`<div style="font-size:11px;font-weight:700;color:var(--ok);margin-top:4px">✓ MELHOR</div>`:''}
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--tx2);line-height:1.6">
+        ${nc===totalSep?'<b>Empate.</b> Ambas as abordagens resultam no mesmo número de enfestos. Prefira o combinado para simplificar a produção.'
+          :combMelhor?`<b>Combinado economiza ${totalSep-nc} enfesto(s).</b> Use o plano combinado para maior eficiência de produção.`
+          :`<b>Separado economiza ${nc-totalSep} enfesto(s).</b> Cada referência ficou mais otimizada individualmente.`}
+      </div>
+    </div>`;
+  } else if(!combOK && sepOK){
+    html += `<div style="background:var(--wnb);border:1px solid #f0d080;border-radius:var(--r);padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--wn)">
+      ⚠ï¸ Cálculo combinado não encontrou solução (${Math.max(60,Math.floor(timeout*0.4))}s). Resultado por referência separada:
+    </div>`;
+  }
+
+  // ── Seção combinado ──
+  if(combOK){
+    const sols=dadoCombinado.solucoes;
+    const cg=dadoCombinado.config?.consumo_peca_m||1.0645;
+    const cmp=sols.length>1?renderCmp(sols,dadoCombinado.tamanhos,dadoCombinado.grade,dadoCombinado.limites):'';
+    html+=`<div class="card" style="border-left:3px solid var(--ok);margin-bottom:12px">
+      <div class="ct"><span>🔗 Combinado</span>
+        <span style="font-size:11px;color:var(--tx2)">${sols[0].resumo.n_mapas} enf. · desvio=${sols[0].resumo.desvio_total}pcs · ${sols[0].resumo.media_pecas_mapa}pç/mapa</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;margin-bottom:-1px">
+        <div class="otabs" id="mrt_c" style="flex:1">
+          ${sols.map((s,i)=>`<div class="otab ${i===0?'at':''}" onclick="atOptMulti('mrt_c','mrp_c',${i})">Opção ${i+1} — ${s.resumo.n_mapas} enf.</div>`).join('')}
+        </div>
+        <button class="btn btn-s btn-sm" onclick="exportar(window._dadoCombinado)">⬇ Exportar</button>
+      </div>
+      <div class="ocont" id="mrp_c">
+        ${sols.map((s,i)=>`<div class="opan ${i===0?'at':''}" id="mrp_c_${i}">${renderOp(s,dadoCombinado.tamanhos,dadoCombinado.grade,dadoCombinado.limites,i+1,cg)}</div>`).join('')}
+        ${cmp?`<div class="sep"></div>${cmp}`:''}
+      </div>
+    </div>`;
+  }
+
+  // ── Seção separado ──
+  if(sepOK){
+    const comSol=dadosSep.filter(r=>r.data);
+    const totalFolhas=comSol.reduce((s,r)=>s+(r.data.solucoes[0].resumo.total_folhas||0),0);
+    html+=`<div style="font-size:12px;font-weight:700;color:var(--tx2);margin:${combOK?'14px':0} 0 8px">
+      📋 Separado${combOK?' (comparação)':''}: ${totalSep} enf. · ${totalFolhas} folhas
+    </div>`;
+    dadosSep.forEach((r,ri)=>{ html+=_renderRefCard(r,ri,''); });
+  }
+
+  document.getElementById('otabs').innerHTML='';
+  document.getElementById('ocont').innerHTML=html;
+}
+
+function atOptMulti(tid,pid,i){
+  document.querySelectorAll(`#${tid} .otab`).forEach((t,j)=>t.classList.toggle('at',j===i));
+  document.querySelectorAll(`#${pid} .opan`).forEach((p,j)=>p.classList.toggle('at',j===i));
+}
+
+async function exportarRef(ri){
+  const r=window._resultadoMulti?.[ri];
+  if(!r||r.erro) return;
+  await exportar(r.data);
+}
+
+function renderResultadoGrupos(validos){
+  window._multiGrupoValidos = validos;
+  const best = validos[0];
+  let html = '';
+
+  // ── Tabela de comparação ──
+  if(validos.length > 1){
+    const top = validos.slice(0, Math.min(validos.length, 10));
+    html += `<div style="background:var(--sf2);border:1px solid var(--bd);border-radius:var(--r);padding:10px 12px;margin-bottom:14px">
+      <div style="font-weight:700;font-size:13px;margin-bottom:8px">📊 Comparação de Agrupamentos (${validos.length} válidos)</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <tr><th style="text-align:left;padding:4px 8px;background:var(--sf3)">Agrupamento</th>
+            <th style="text-align:center;padding:4px 8px;background:var(--sf3);width:80px">Enfestos</th></tr>`;
+    top.forEach((pr,i)=>{
+      const isBest=i===0;
+      const desc=pr.grupos.map(g=>g.idxs.length===1
+        ?(refs[g.idxs[0]].nome||'Ref '+(g.idxs[0]+1))
+        :'['+g.idxs.map(i=>refs[i].nome||'Ref '+(i+1)).join('+')+']'
+      ).join(' + ');
+      html+=`<tr style="${isBest?'background:var(--okb);':''}">
+        <td style="padding:4px 8px;${isBest?'font-weight:700':''}">${isBest?'🏆 ':''}${desc}</td>
+        <td style="text-align:center;padding:4px 8px;${isBest?'font-weight:700':''}">${pr.total}</td></tr>`;
+    });
+    if(validos.length>10)
+      html+=`<tr><td colspan="2" style="padding:4px 8px;color:var(--tx3);font-style:italic">… e mais ${validos.length-10} combinações válidas</td></tr>`;
+    html+=`</table></div>`;
+  }
+
+  // ── Resultado detalhado do melhor agrupamento ──
+  html+=`<div style="font-size:12px;font-weight:700;color:var(--ac);margin-bottom:10px">🏆 Melhor agrupamento: ${best.total} enfestos</div>`;
+
+  best.grupos.forEach((gp,gpi)=>{
+    const isGrupo=gp.idxs.length>1;
+    const label=isGrupo
+      ?gp.idxs.map(i=>refs[i].nome||'Ref '+(i+1)).join(' + ')
+      :(refs[gp.idxs[0]].nome||'Ref '+(gp.idxs[0]+1));
+    const sols=gp.data.solucoes;
+    const isMultiref=gp.tipo==='multiref';
+    const cg=gp.data.config?.consumo_peca_m||1.0645;
+    const cmp=(!isMultiref&&sols.length>1)?renderCmp(sols,gp.data.tamanhos,gp.data.grade,gp.data.limites):'';
+    const tid=`mgt${gpi}`,pid=`mgp${gpi}`;
+    html+=`<div class="card" style="border-left:3px solid ${isGrupo?'var(--ac)':'var(--ok)'};margin-bottom:12px">
+      <div class="ct">
+        <span>${isGrupo?'🔗':'📌'} ${label}</span>
+        <span style="font-size:11px;color:var(--tx2)">${sols[0].resumo.n_mapas} enf. · desvio=${sols[0].resumo.desvio_total}pcs · ${sols[0].resumo.media_pecas_mapa}pç/mapa</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;margin-bottom:-1px;flex-wrap:wrap">
+        <div class="otabs" id="${tid}" style="flex:1">
+          ${sols.map((s,i)=>`<div class="otab ${i===0?'at':''}" onclick="atOptMulti('${tid}','${pid}',${i})">Opção ${i+1} — ${s.resumo.n_mapas} enf.</div>`).join('')}
+        </div>
+        <button class="btn btn-s btn-sm" onclick="exportarGrupo(${gpi})">⬇ Exportar</button>
+      </div>
+      <div class="ocont" id="${pid}">
+        ${sols.map((s,i)=>`<div class="opan ${i===0?'at':''}" id="${pid}_${i}">${isMultiref?renderOpMultiref(s,gp.data.tamanhos,i+1):renderOp(s,gp.data.tamanhos,gp.data.grade,gp.data.limites,i+1,cg)}</div>`).join('')}
+        ${cmp?`<div class="sep"></div>${cmp}`:''}
+      </div>
+    </div>`;
+  });
+
+  document.getElementById('otabs').innerHTML='';
+  document.getElementById('ocont').innerHTML=html;
+  document.getElementById('rb').style.display='block';
+}
+
+async function exportarGrupo(gpi){
+  const best=window._multiGrupoValidos?.[0];
+  if(!best||!best.grupos[gpi]) return;
+  const gp=best.grupos[gpi];
+  if(gp.tipo==='multiref') await exportarMultiref(gp.data);
+  else await exportar(gp.data);
+}
+
+async function exportarMultiref(data){
+  document.getElementById('es').textContent='Gerando...';
+  try{
+    const r=await fetch('/exportar_multiref',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    const res=await r.json();
+    document.getElementById('es').textContent=res.caminho?'✅ Salvo: '+res.caminho:'❌ '+res.erro;
+  }catch(e){document.getElementById('es').textContent='❌ '+e.message;}
+}
+
+function renderOp(sol,tams,grade,lims,num,data_consumo){
+  const r=sol.resumo; const mp=sol.mapas; const fl=sol.folhas;
+  const cs=Object.keys(grade); const cons=data_consumo||sol.resumo?.consumo_peca||1.0645;
+  const devCls = r.desvio_total===0 ? 'style="color:var(--ok)"' : r.desvio_total<=15 ? 'style="color:var(--wn)"' : 'style="color:var(--er)"';
+  const devLabel = r.desvio_total===0 ? '✓ Sem ajuste' : `${r.desvio_total} peças`;
+  let h=`<div class="kpis">
+    <div class="kpi"><span class="kpiv">${r.n_mapas}</span><span class="kpil">Enfestos</span></div>
+    <div class="kpi"><span class="kpiv">${r.total_folhas}</span><span class="kpil">Total folhas</span></div>
+    <div class="kpi"><span class="kpiv" ${devCls}>${devLabel}</span><span class="kpil">Ajuste de grade</span></div>
+    <div class="kpi"><span class="kpiv">${r.media_pecas_mapa} pç</span><span class="kpil">Média peças/mapa</span></div>
+  </div>`;
+
+  mp.forEach((mapa,mi)=>{
+    const nP=tams.reduce((s,t)=>s+(mapa[t]||0),0);
+    const comp=(nP*cons).toFixed(4);
+    const tf=cs.reduce((s,c)=>s+(fl[c]?.[mi]||0),0);
+    const ms=tams.filter(t=>mapa[t]>0).map(t=>`${mapa[t]}${t}`).join('+');
+    h+=`<div class="ehdr">Enfesto ${mi+1} · Mapa: ${ms} · ${nP} peças · ${comp}m · ${tf} folhas</div>
+    <table class="rt"><thead><tr><th>Cor</th><th>Folhas</th>
+      ${tams.map(t=>`<th>${t}</th>`).join('')}<th>Total</th></tr></thead><tbody>`;
+    cs.forEach(c=>{
+      const f=fl[c]?.[mi]||0;
+      const tot=tams.reduce((s,t)=>s+f*(mapa[t]||0),0);
+      h+=`<tr><td>${c}</td><td><b>${f}</b></td>
+        ${tams.map(t=>`<td>${f*(mapa[t]||0)||'—'}</td>`).join('')}
+        <td><b>${tot||'—'}</b></td></tr>`;
+    });
+    const tTam=tams.map(t=>cs.reduce((s,c)=>(fl[c]?.[mi]||0)*(mapa[t]||0)+s,0));
+    const tG=tTam.reduce((a,b)=>a+b,0);
+    h+=`<tr class="tot-e"><td>TOTAL</td><td>${tf}</td>${tTam.map(v=>`<td>${v||'—'}</td>`).join('')}<td><b>${tG}</b></td></tr>
+    </tbody></table>`;
+  });
+
+  // Totalizador geral
+  const tGrdTam=tams.map(t=>Object.values(grade).reduce((s,g)=>(g[t]||0)+s,0));
+  const tCrtTam=tams.map(t=>cs.reduce((s,c)=>mp.reduce((ss,m,k)=>ss+(fl[c]?.[k]||0)*(m[t]||0),0)+s,0));
+  h+=`<div style="font-size:11px;font-weight:600;color:var(--ac);margin:10px 0 4px">Totalizador Geral — Opção ${num}</div>
+  <table class="rt"><thead><tr><th></th>${tams.map(t=>`<th>${t}</th>`).join('')}<th>TOTAL</th></tr></thead><tbody>
+  <tr><td>Grade</td>${tGrdTam.map(v=>`<td>${v||''}</td>`).join('')}<td><b>${tGrdTam.reduce((a,b)=>a+b,0)}</b></td></tr>
+  <tr class="tot-e"><td>Corta</td>${tCrtTam.map(v=>`<td>${v||''}</td>`).join('')}<td><b>${tCrtTam.reduce((a,b)=>a+b,0)}</b></td></tr>
+  </tbody></table>`;
+
+  // Conferência
+  h+=`<div class="sep"></div>
+  <div style="font-size:11px;font-weight:600;color:var(--ac);margin-bottom:5px">Conferência — Opção ${num}</div>
+  <table class="rt"><thead>
+    <tr><th>Cor</th>${tams.map(t=>`<th colspan="3">${t}</th>`).join('')}<th colspan="2">Total</th></tr>
+    <tr><th></th>${tams.map(()=>'<th style="font-size:9px">Grd</th><th style="font-size:9px">Crt</th><th style="font-size:9px">Adj</th>').join('')}
+      <th style="font-size:9px">Grd</th><th style="font-size:9px">Crt</th></tr>
+  </thead><tbody>`;
+  cs.forEach(c=>{
+    const tG=tams.reduce((s,t)=>(grade[c]?.[t]||0)+s,0);
+    const tC=tams.reduce((s,t)=>mp.reduce((ss,m,k)=>ss+(fl[c]?.[k]||0)*(m[t]||0),0)+s,0);
+    h+=`<tr><td>${c}</td>`;
+    tams.forEach(t=>{
+      const gv=grade[c]?.[t]||0,ct=mp.reduce((s,m,k)=>s+(fl[c]?.[k]||0)*(m[t]||0),0),adj=ct-gv;
+      const lim=lims?.[c]?.[t]||[-4,4];
+      const ok=adj>=lim[0]&&adj<=lim[1];
+      h+=`<td>${gv}</td><td>${ct}</td><td class="${ok?'aok':adj>0?'apos':'aneg'}">${adj>0?'+':''}${adj}</td>`;
+    });
+    h+=`<td><b>${tG}</b></td><td><b>${tC}</b></td></tr>`;
+  });
+  const ttG=tams.reduce((s,t)=>cs.reduce((ss,c)=>(grade[c]?.[t]||0)+ss,0)+s,0);
+  const ttC=tams.reduce((s,t)=>cs.reduce((ss,c)=>mp.reduce((sss,m,k)=>sss+(fl[c]?.[k]||0)*(m[t]||0),0)+ss,0)+s,0);
+  const ttA=ttC-ttG;
+  h+=`<tr class="tot-g"><td>TOTAL</td>
+    ${tams.map(t=>{
+      const g=cs.reduce((s,c)=>(grade[c]?.[t]||0)+s,0);
+      const c2=cs.reduce((s,c)=>mp.reduce((ss,m,k)=>ss+(fl[c]?.[k]||0)*(m[t]||0),0)+s,0);
+      const a=c2-g;
+      return `<td>${g}</td><td>${c2}</td><td class="${a===0?'aok':a>0?'apos':'aneg'}">${a>0?'+':''}${a}</td>`;
+    }).join('')}
+    <td><b>${ttG}</b></td><td><b>${ttC}</b></td></tr>
+  </tbody></table>`;
+  return h;
+}
+
+function renderOpMultiref(sol, tams, num){
+  const r=sol.resumo;
+  const refs_sol=sol.refs_sol||[];
+  const devCls=r.desvio_total===0?'style="color:var(--ok)"':r.desvio_total<=15?'style="color:var(--wn)"':'style="color:var(--er)"';
+  const devLabel=r.desvio_total===0?'Ok (sem ajuste)':`${r.desvio_total} pcs ajuste`;
+  let h=`<div class="kpis">
+    <div class="kpi"><span class="kpiv">${r.n_mapas}</span><span class="kpil">Enfestos comb.</span></div>
+    <div class="kpi"><span class="kpiv">${r.total_folhas}</span><span class="kpil">Total folhas</span></div>
+    <div class="kpi"><span class="kpiv" ${devCls}>${devLabel}</span><span class="kpil">Ajuste total</span></div>
+    <div class="kpi"><span class="kpiv">${r.comprimento_total}m</span><span class="kpil">Comp. total</span></div>
+  </div>`;
+  sol.comprimentos.forEach((comp,ki)=>{
+    h+=`<div class="ehdr">Enfesto Combinado ${ki+1} - ${comp}m</div>`;
+    refs_sol.forEach((ref,ri)=>{
+      const mapa=ref.mapas[ki]||{};
+      const folhas=ref.folhas||{};
+      const cores_ref=Object.keys(ref.grade||{});
+      const consumo=parseFloat(ref.consumo||1.0645);
+      const nP=tams.reduce((s,t)=>s+(mapa[t]||0),0);
+      const compRef=(nP*consumo).toFixed(4);
+      const tf=cores_ref.reduce((s,c)=>s+(folhas[c]?.[ki]||0),0);
+      const ms=tams.filter(t=>mapa[t]>0).map(t=>`${mapa[t]}${t}`).join('+');
+      h+=`<div style="background:var(--inb);border-left:3px solid #aed6f1;padding:4px 10px;font-size:11px;font-weight:600;color:var(--in)">
+        ${ref.nome||'Ref '+(ri+1)} - Mapa: ${ms} - ${nP}pcs x ${consumo}m = ${compRef}m - ${tf} folhas
+      </div>
+      <table class="rt"><thead><tr><th>Cor</th><th>Folhas</th>
+        ${tams.map(t=>`<th>${t}</th>`).join('')}<th>Total</th></tr></thead><tbody>`;
+      cores_ref.forEach(c=>{
+        const f=folhas[c]?.[ki]||0;
+        const tot=tams.reduce((s,t)=>s+f*(mapa[t]||0),0);
+        h+=`<tr><td>${c}</td><td><b>${f}</b></td>
+          ${tams.map(t=>`<td>${f*(mapa[t]||0)||'-'}</td>`).join('')}
+          <td><b>${tot||'-'}</b></td></tr>`;
+      });
+      h+=`</tbody></table>`;
+    });
+  });
+  h+=`<div class="sep"></div><div style="font-size:11px;font-weight:600;color:var(--ac);margin-bottom:5px">Totalizador por Ref - Op ${num}</div>`;
+  refs_sol.forEach(ref=>{
+    const grade=ref.grade||{};
+    const folhas=ref.folhas||{};
+    const mapas=ref.mapas||[];
+    const cores_ref=Object.keys(grade);
+    h+=`<div style="font-size:10px;font-weight:700;color:var(--tx2);margin:6px 0 2px">${ref.nome}</div>
+    <table class="rt"><thead><tr><th></th>${tams.map(t=>`<th>${t}</th>`).join('')}<th>TOTAL</th></tr></thead><tbody>`;
+    const tGrdTam=tams.map(t=>cores_ref.reduce((s,c)=>(grade[c]?.[t]||0)+s,0));
+    const tCrtTam=tams.map(t=>cores_ref.reduce((s,c)=>mapas.reduce((ss,m,k)=>ss+(folhas[c]?.[k]||0)*(m[t]||0),0)+s,0));
+    h+=`<tr><td>Grade</td>${tGrdTam.map(v=>`<td>${v||''}</td>`).join('')}<td><b>${tGrdTam.reduce((a,b)=>a+b,0)}</b></td></tr>`;
+    h+=`<tr class="tot-e"><td>Corta</td>${tCrtTam.map(v=>`<td>${v||''}</td>`).join('')}<td><b>${tCrtTam.reduce((a,b)=>a+b,0)}</b></td></tr>`;
+    const diffs=tams.map((t,i)=>tCrtTam[i]-tGrdTam[i]);
+    h+=`<tr><td>Ajuste</td>${diffs.map(d=>`<td class="${d===0?'aok':d>0?'apos':'aneg'}">${d>0?'+':''}${d}</td>`).join('')}<td class="${diffs.reduce((a,b)=>a+b,0)===0?'aok':'apos'}"><b>${diffs.reduce((a,b)=>a+b,0)>0?'+':''}${diffs.reduce((a,b)=>a+b,0)}</b></td></tr>`;
+    h+=`</tbody></table>`;
+  });
+  return h;
+}
+
+function renderCmp(sols,tams,grade,lims){
+  const cs=Object.keys(grade);
+  const metricas=sols.map(s=>({dev:s.resumo.desvio_total||0,ppm:s.resumo.media_pecas_mapa||0,nEnf:s.resumo.n_mapas||0}));
+  let tradeoffHtml='';
+  if(sols.length>=2){
+    const [m0,m1]=metricas;
+    const diffDev=m1.dev-m0.dev,diffPpm=m1.ppm-m0.ppm;
+    const pctPpm=m0.ppm>0?((diffPpm/m0.ppm)*100).toFixed(1):0;
+    let msg='';
+    if(m0.dev===0&&m1.dev===0)
+      msg='<span style="color:var(--ok);font-weight:600">Ambas sem ajuste de grade.</span> Prefira a de maior eficiência de encaixe (Opção '+(m0.ppm>=m1.ppm?1:2)+').';
+    else if(m0.dev===0)
+      msg='<span style="color:var(--ok);font-weight:600">Opção 1 sem ajuste de grade.</span> Opção 2 ajusta '+m1.dev+' peças'+(parseFloat(pctPpm)>0?' e ganha +'+pctPpm+'% de peças/mapa':' sem ganho de encaixe adicional')+'.';
+    else if(m1.dev===0)
+      msg='<span style="color:var(--ok);font-weight:600">Opção 2 sem ajuste de grade.</span> Opção 1 ajusta '+m0.dev+' peças'+(parseFloat(pctPpm)<0?' com +'+((-pctPpm).toFixed(1))+'% mais peças/mapa':' sem ganho de encaixe')+'.';
+    else if(diffDev>0&&diffPpm>0)
+      msg='Opção 2 precisa de <b>+'+diffDev+' peças de ajuste</b> mas ganha <b>+'+pctPpm+'% de eficiência de encaixe</b>. '+(parseFloat(pctPpm)>=10?'<span style="color:var(--ok);font-weight:600">Ganho significativo — pode justificar o ajuste.</span>':'<span style="color:var(--wn);font-weight:600">Ganho pequeno — prefira Opção 1 se o ajuste for crítico.</span>');
+    else if(diffDev<=0)
+      msg='Opção 2 tem <b>menor ajuste</b> ('+m1.dev+' vs '+m0.dev+' peças). '+(diffPpm>=0?'Recomenda-se Opção 2.':'Mas Opção 1 tem '+(-pctPpm).toFixed(1)+'% mais peças/mapa.');
+    else
+      msg='Opção 1: '+m0.dev+' peças ajuste, '+m0.ppm+' pç/mapa. Opção 2: '+m1.dev+' peças ajuste, '+m1.ppm+' pç/mapa.';
+    tradeoffHtml='<div style="background:var(--inb);border:1px solid #aed6f1;border-radius:var(--r);padding:9px 12px;font-size:11px;color:var(--in);margin-bottom:10px;line-height:1.7"><b>Análise de trade-off:</b> '+msg+'</div>';
+  }
+  const resumoHtml='<div style="display:grid;grid-template-columns:repeat('+sols.length+',1fr);gap:8px;margin-bottom:10px">'+
+    sols.map((s,i)=>{
+      const m=metricas[i];
+      const dc=m.dev===0?'style="color:var(--ok)"':m.dev<=15?'style="color:var(--wn)"':'style="color:var(--er)"';
+      return '<div style="background:var(--sf2);border-radius:var(--r);padding:9px 12px;border:1px solid var(--bd)"><div style="font-size:11px;font-weight:600;color:var(--ac);margin-bottom:5px">Opção '+(i+1)+'</div><div style="font-size:11px;line-height:1.8">Enfestos: <b>'+m.nEnf+'</b><br>Peças/mapa: <b>'+m.ppm+'</b><br>Ajuste grade: <b '+dc+'>'+(m.dev===0?'✓ Nenhum':m.dev+' peças')+'</b></div></div>';
+    }).join('')+'</div>';
+  let h='<div style="font-size:12px;font-weight:600;color:var(--ac);margin-bottom:8px">📊 Comparativo de Ajustes de Grade</div>'+
+    tradeoffHtml+resumoHtml+
+    '<table class="cmp-table"><thead><tr><th>Cor / Tam</th><th>Grade</th>'+
+    sols.map((_,i)=>'<th colspan="2">Opção '+(i+1)+'</th>').join('')+
+    '</tr><tr><th></th><th></th>'+sols.map(()=>'<th style="font-size:9px">Corta</th><th style="font-size:9px">Ajuste</th>').join('')+'</tr></thead><tbody>';
+  cs.forEach(cor=>{
+    tams.forEach(t=>{
+      const gv=grade[cor]?.[t]||0; if(!gv) return;
+      const vals=sols.map(s=>{const ct=s.mapas.reduce((ss,m,k)=>ss+(s.folhas[cor]?.[k]||0)*(m[t]||0),0);return{ct,adj:ct-gv};});
+      const minAdj=Math.min(...vals.map(v=>Math.abs(v.adj)));
+      const temDif=vals.some(v=>v.adj!==vals[0].adj);
+      h+='<tr '+(temDif?'style="background:#fffef0"':'')+'><td>'+cor+'/<b>'+t+'</b></td><td>'+gv+'</td>'+
+        vals.map(v=>{
+          const lim=lims?.[cor]?.[t]||[-4,4];
+          const ok=v.adj>=lim[0]&&v.adj<=lim[1];
+          const cls=!ok?'cmp-pior':v.adj===0?'aok':Math.abs(v.adj)===minAdj?'cmp-melhor':'';
+          return '<td>'+v.ct+'</td><td class="'+cls+'">'+(v.adj===0?'✓':v.adj>0?'+'+v.adj:v.adj)+'</td>';
+        }).join('')+'</tr>';
+    });
+  });
+  const tGrd=tams.reduce((s,t)=>cs.reduce((ss,c)=>(grade[c]?.[t]||0)+ss,0)+s,0);
+  const tCrts=sols.map(s=>tams.reduce((s2,t)=>cs.reduce((ss,c)=>s.mapas.reduce((sss,m,k)=>sss+(s.folhas[c]?.[k]||0)*(m[t]||0),0)+ss,0)+s2,0));
+  h+='<tr class="tot-g"><td colspan="2">TOTAL GRADE: <b>'+tGrd+'</b></td>'+
+    tCrts.map((tc,i)=>{const a=tc-tGrd;return'<td><b>'+tc+'</b></td><td class="'+(a===0?'aok':a>0?'apos':'aneg')+'">'+(a===0?'✓':a>0?'+'+a:a)+'</td>';}).join('')+
+    '</tr></tbody></table>'+
+    '<div class="hint" style="margin-top:4px"><span class="aok">✓</span> = exato &nbsp;|&nbsp; <span class="cmp-melhor">Verde</span> = menor desvio entre opções &nbsp;|&nbsp; <span class="cmp-pior">Vermelho</span> = fora da tolerância &nbsp;|&nbsp; <span style="background:#fffef0;padding:1px 4px;border-radius:2px">Amarelo</span> = difere entre opções</div>';
+  return h;
+}
+
+// ── Exportar / Limpar ─────────────────────────────────────────────────────────
+async function exportar(data){
+  const d=data||resultado;
+  if(!d) return;
+  document.getElementById('es').textContent='Gerando...';
+  try{
+    const r=await fetch('/exportar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});
+    const res=await r.json();
+    document.getElementById('es').textContent=res.caminho?'✅ Salvo: '+res.caminho:'❌ '+res.erro;
+  }catch(e){document.getElementById('es').textContent='❌ '+e.message;}
+}
+function limpar(){
+  cores=[...cadastroCores]; refs=[]; pid=1;
+  document.getElementById('ref-body').innerHTML='';
+  renderCoresGrid(); addRef();
+  document.getElementById('pb').style.display='none';
+  document.getElementById('rb').style.display='none';
+  document.getElementById('sg').textContent='';
+  document.getElementById('upload-st').textContent='';
+  document.getElementById('info-refs').textContent='';
+  resultado=null;
+  window._resultadoMulti=null;
+  // Limpar seção de rolos
+  _rolosPorCor={};
+  var lista=document.getElementById('aloc-cores-lista');
+  if(lista) lista.innerHTML='';
+  var semCores=document.getElementById('aloc-sem-cores');
+  if(semCores) semCores.style.display='';
+  var alocSt=document.getElementById('aloc-st');
+  if(alocSt) alocSt.textContent='';
+  var alocResult=document.getElementById('aloc-result');
+  if(alocResult) alocResult.innerHTML='';
+}
+
+async function encerrarSistema() {
+  if (!confirm('Encerrar o sistema?\nO servidor Python será finalizado e o sistema ficará offline.')) return;
+  try {
+    await fetch('/encerrar');
+  } catch(e) {}
+  document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:Segoe UI,sans-serif;color:#1a3a5c;flex-direction:column;gap:12px"><div style="font-size:48px">✅</div><div style="font-size:20px;font-weight:600">Sistema encerrado</div><div style="font-size:14px;color:#888">Pode fechar esta aba.</div></div>';
+}
+
+
+// ============================================================
+// ALOCACAO DE ROLOS v2.8.0
+// ============================================================
+
+var _rolosPorCor = {};
+var _mapeamentosPendentes = {};
+var _updateDisponivel = null;
+
+function atualizarCoresAlocacao() {
+  var lista = document.getElementById('aloc-cores-lista');
+  var semCores = document.getElementById('aloc-sem-cores');
+  if (!lista) return;
+
+  var coresDisponiveis = [];
+  var seen = new Set();
+
+  function addCor(c) {
+    if (!seen.has(c)) { seen.add(c); coresDisponiveis.push(c); }
+  }
+
+  if (typeof resultado !== 'undefined' && resultado && resultado.grade) {
+    Object.keys(resultado.grade).forEach(addCor);
+  }
+  if (window._resultadoMulti) {
+    (window._resultadoMulti.grupos || []).forEach(function(g) {
+      var d = g.data;
+      if (d && d.grade) Object.keys(d.grade).forEach(addCor);
+      if (d && d.solucoes) {
+        d.solucoes.forEach(function(s) {
+          (s.refs_sol || []).forEach(function(r) {
+            Object.keys(r.grade || {}).forEach(addCor);
+          });
+        });
+      }
+    });
+  }
+  Object.keys(_rolosPorCor).forEach(addCor);
+
+  if (coresDisponiveis.length === 0) {
+    lista.innerHTML = '';
+    semCores.style.display = '';
+    return;
+  }
+
+  semCores.style.display = 'none';
+
+  // Salvar valores atuais antes de reconstruir
+  var valoresSalvos = {};
+  lista.querySelectorAll('[data-cor]').forEach(function(el) {
+    var inp = el.querySelector('input');
+    if (inp && inp.value.trim()) valoresSalvos[el.dataset.cor] = inp.value;
+  });
+
+  lista.innerHTML = '';
+
+  coresDisponiveis.forEach(function(cor) {
+    var valAtual = valoresSalvos[cor]
+      || ((_rolosPorCor[cor] || []).length ? (_rolosPorCor[cor]).join('; ') : '');
+
+    var row = document.createElement('div');
+    row.dataset.cor = cor;
+    row.style.cssText = 'display:grid;grid-template-columns:140px 1fr auto;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--bd1)';
+
+    var lbl = document.createElement('span');
+    lbl.textContent = cor;
+    lbl.style.cssText = 'font-weight:600;font-size:12px;color:var(--tx)';
+
+    var inp = document.createElement('input');
+    inp.type = 'text';
+    inp.placeholder = 'comprimentos (separe por ;), ex: 87,5; 142; 60';
+    inp.value = valAtual;
+    inp.style.cssText = 'padding:5px 8px;border:1px solid var(--bd2);border-radius:var(--r);font-size:12px;width:100%';
+    inp.addEventListener('input', function() {
+      _rolosPorCor[cor] = this.value.split(';')
+        .map(function(v) { return parseFloat(v.trim().replace(',', '.')); })
+        .filter(function(v) { return v > 0; });
+    });
+
+    var btn = document.createElement('button');
+    btn.className = 'btn btn-s btn-sm';
+    btn.textContent = '×';
+    btn.style.cssText = 'padding:3px 8px;flex-shrink:0';
+    btn.addEventListener('click', function() {
+      delete _rolosPorCor[cor];
+      row.remove();
+    });
+
+    row.appendChild(lbl);
+    row.appendChild(inp);
+    row.appendChild(btn);
+    lista.appendChild(row);
+  });
+}
+
+function adicionarCorManual() {
+  var cor = prompt('Nome da cor (ex: AZUL):');
+  if (!cor) return;
+  var corU = cor.trim().toUpperCase();
+  if (!_rolosPorCor[corU]) _rolosPorCor[corU] = [];
+  atualizarCoresAlocacao();
+}
+
+
+async function iniciarAlocacao() {
+  var st = document.getElementById('aloc-st');
+  var resDiv = document.getElementById('aloc-resultado');
+  st.textContent = 'Alocando...';
+  resDiv.style.display = 'none';
+
+  var listaEl = document.getElementById('aloc-cores-lista');
+  var rows = listaEl ? listaEl.querySelectorAll('[data-cor]') : [];
+  var rolos = {};
+  rows.forEach(function(row) {
+    var cor = row.dataset.cor;
+    var inp = row.querySelector('input[type=text]');
+    if (inp) {
+      var vals = inp.value.split(',')
+        .map(function(v){ return parseFloat(v.trim()); })
+        .filter(function(v){ return v > 0; });
+      if (vals.length) rolos[cor] = vals;
+    }
+  });
+  Object.keys(_rolosPorCor).forEach(function(k){
+    if (!rolos[k] && _rolosPorCor[k].length) rolos[k] = _rolosPorCor[k];
+  });
+
+  if (!Object.keys(rolos).length) { st.textContent = 'Informe os rolos por cor antes de alocar.'; return; }
+
+  var plano = _montarPlanoParaAlocacao();
+  if (!plano) { st.textContent = 'Calcule um plano de corte primeiro.'; return; }
+
+  var body = {
+    plano: plano,
+    rolos: rolos,
+    margem:    parseFloat(document.getElementById('aloc-margem').value) || 0.10,
+    folga_pct: (parseFloat(document.getElementById('aloc-folga').value) || 3) / 100,
+    ponta_min: parseFloat(document.getElementById('aloc-ponta-min').value) || 0.5,
+  };
+
+  try {
+    var resp = await fetch('/alocar_rolos', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    var data = await resp.json();
+    if (data.erro) { st.textContent = 'Erro: ' + data.erro; return; }
+    st.textContent = 'Alocacao concluida.';
+    _renderResultadoAlocacao(data);
+    resDiv.style.display = '';
+    window._ultimaAlocacao = {data: data, plano: plano, rolos: rolos, referencia: _getReferencia()};
+  } catch(e) { st.textContent = 'Erro: ' + e.message; }
+}
+
+function _montarPlanoParaAlocacao() {
+  if (typeof resultado !== 'undefined' && resultado && resultado.solucoes && resultado.solucoes.length) {
+    var sol = resultado.solucoes[0];
+    var mapas = (sol.mapas || []).map(function(m,i){
+      return {id:i, composicao:m, n_pecas:Object.values(m).reduce(function(a,b){return a+b;},0)};
+    });
+    var camadas = {};
+    Object.keys(sol.folhas || {}).forEach(function(cor){
+      camadas[cor] = {};
+      (sol.folhas[cor] || []).forEach(function(n,i){ camadas[cor][i] = n; });
+    });
+    var cfg = resultado.config || {};
+    return {mapas:mapas, camadas:camadas, consumo_peca: cfg.consumo_peca_m || 1.0645};
+  }
+  if (window._resultadoMulti) {
+    var grupos = window._resultadoMulti.grupos || [];
+    if (grupos.length) {
+      var g = grupos[0]; var d = g.data;
+      if (d && d.solucoes && d.solucoes.length) {
+        var sol2 = d.solucoes[0];
+        var mapas2 = (sol2.mapas || []).map(function(m,i){
+          return {id:i, composicao:m, n_pecas:Object.values(m).reduce(function(a,b){return a+b;},0)};
+        });
+        var camadas2 = {};
+        Object.keys(sol2.folhas || {}).forEach(function(cor){
+          camadas2[cor] = {};
+          (sol2.folhas[cor] || []).forEach(function(n,i){ camadas2[cor][i] = n; });
+        });
+        var cfg2 = d.config || {};
+        return {mapas:mapas2, camadas:camadas2, consumo_peca: cfg2.consumo_peca_m || 1.0645};
+      }
+    }
+  }
+  return null;
+}
+
+function _getReferencia() {
+  if (typeof resultado !== 'undefined' && resultado && resultado.referencia) return resultado.referencia;
+  if (window._resultadoMulti) return 'Multi-ref';
+  return 'REF';
+}
+
+function _kpiAloc(label, val, tipo) {
+  var bg = tipo==='ok'?'var(--okb)':tipo==='er'?'var(--erb)':tipo==='wn'?'var(--wnb)':'var(--sf2)';
+  return '<div style="background:'+bg+';border-radius:var(--r);padding:8px;font-size:12px">'
+    +'<div style="font-size:10px;color:var(--tx2)">'+label+'</div>'
+    +'<div style="font-weight:700;font-size:14px">'+val+'</div></div>';
+}
+
+function _sugestoesAlocacao(data) {
+  var sugs = [];
+  var porCor = data.por_cor || {};
+
+  Object.keys(porCor).forEach(function(cor) {
+    var cr = porCor[cor];
+    var comprar = parseFloat(cr.tecido_a_comprar_m) || 0;
+    if (comprar > 0) {
+      sugs.push({tipo:'deficit', cor:cor,
+        msg: 'Faltam ' + comprar.toFixed(1) + 'm de tecido. '
+           + 'Adicione um rolo de pelo menos ' + Math.ceil(comprar + 2) + 'm para cobrir o deficit.'});
+    }
+    (cr.rolos || []).forEach(function(r, ri) {
+      var ponta = parseFloat(r.ponta_m) || 0;
+      var nominal = parseFloat(r.comprimento_nominal_m) || 0;
+      if (r.ponta_classe === 'estoque' && ponta > 0 && nominal > 0 && ponta / nominal > 0.08) {
+        var ideal = parseFloat((nominal - ponta).toFixed(1));
+        sugs.push({tipo:'otimizar', cor:cor,
+          msg: 'Rolo ' + (ri+1) + ' (' + nominal + 'm) sobrou ' + ponta.toFixed(1) + 'm (' +
+               Math.round(ponta/nominal*100) + '%). Trocar por um rolo de ~' + ideal + 'm reduziria a ponta.'});
+      }
+      if ((r.sub_enfestos || []).length === 0 && (parseFloat(r.usado_m)||0) === 0) {
+        sugs.push({tipo:'excesso', cor:cor,
+          msg: 'Rolo ' + (ri+1) + ' (' + nominal + 'm) nao foi utilizado. Pode ser retirado do plano.'});
+      }
+    });
+  });
+
+  if (sugs.length === 0) return '';
+
+  var html = '<div style="margin:10px 0;border:1px solid var(--ac);border-radius:var(--r);padding:10px">';
+  html += '<div style="font-weight:600;color:var(--ac);margin-bottom:8px">💡 Sugestoes de Otimizacao</div>';
+  sugs.forEach(function(s) {
+    var ic = s.tipo==='deficit' ? '⚠️' : s.tipo==='excesso' ? 'ℹ️' : '🔄';
+    var cor2 = s.tipo==='deficit' ? 'var(--er)' : s.tipo==='excesso' ? 'var(--tx2)' : 'var(--ac)';
+    html += '<div style="padding:5px 0;border-bottom:1px solid var(--bd1);font-size:12px">';
+    html += ic + ' <b style="color:'+cor2+'">['+s.cor+']</b> ' + s.msg;
+    html += '</div>';
+  });
+  html += '</div>';
+  return html;
+}
+
+function _renderResultadoAlocacao(data) {
+  var div = document.getElementById('aloc-resultado');
+  var res  = data.resumo_geral || {};
+  var corList = Object.keys(data.por_cor || {});
+
+  var html = '<div style="font-weight:600;color:var(--ac);margin-bottom:8px">Resumo da Alocacao</div>';
+  html += '<div class="g3" style="margin-bottom:10px">';
+  html += _kpiAloc('Tecido usado', (+(res.tecido_usado_total_m||0)).toFixed(1)+'m');
+  html += _kpiAloc('Ponta (estoque)', (+(res.ponta_estoque_total_m||0)).toFixed(1)+'m', 'ok');
+  var refugo = +(res.refugo_real_total_m||0);
+  html += _kpiAloc('Refugo real', refugo.toFixed(1)+'m ('+(res.refugo_percentual_medio||0)+'%)', refugo>0?'wn':'ok');
+  html += '</div><div class="g3" style="margin-bottom:10px">';
+  html += _kpiAloc('Sub-enfestos total', res.n_sub_enfestos_total||0);
+  var cDef = res.cores_com_deficit||[];
+  html += _kpiAloc('Cores com deficit', cDef.join(', ')||'Nenhuma', cDef.length?'er':'ok');
+  html += '</div>';
+
+  var alertasImp = (res.alertas||[]).filter(function(a){ return a.indexOf('CRITICO')>=0||a.indexOf('deficit')>=0; });
+  if (alertasImp.length) {
+    html += '<div style="background:var(--wnb);border:1px solid var(--wn);border-radius:var(--r);padding:8px;margin-bottom:10px;font-size:11px">';
+    alertasImp.forEach(function(a){ html += '<div>&#9888; '+a+'</div>'; });
+    html += '</div>';
+  }
+
+  corList.forEach(function(cor) {
+    var cr = (data.por_cor||{})[cor] || {};
+    html += '<details style="margin-bottom:6px">';
+    html += '<summary style="cursor:pointer;font-weight:600;padding:5px 8px;background:var(--sf2);border-radius:var(--r)">';
+    html += cor+' &mdash; '+(cr.n_sub_enfestos||0)+' sub-enfesto(s), refugo '+(cr.refugo_percentual||0)+'%';
+    if (Object.keys(cr.camadas_em_deficit||{}).length) html += ' <span style="color:var(--er)">&#9888; deficit</span>';
+    html += '</summary><div style="padding:8px;font-size:12px">';
+    (cr.rolos||[]).forEach(function(r,ri) {
+      var corP = r.ponta_classe==='estoque'?'var(--ok)':'var(--er)';
+      html += '<div style="margin-bottom:6px;padding:6px;background:var(--sf2);border-radius:var(--r)">';
+      html += '<b>Rolo '+(ri+1)+'</b> '+r.comprimento_nominal_m+'m &rarr; seguro '+r.comprimento_seguro_m+'m | ';
+      html += 'usado '+r.usado_m+'m | ponta <span style="color:'+corP+'">'+r.ponta_m+'m ('+r.ponta_classe+')</span>';
+      if ((r.sub_enfestos||[]).length) {
+        html += '<div style="margin-top:4px;padding-left:12px">';
+        r.sub_enfestos.forEach(function(s){
+          html += '<div>Mapa '+s.mapa_id+': '+s.n_camadas+' camada(s) x '+s.comp_camada+'m + '+s.margem_m+'m faca = '+s.comp_total+'m</div>';
+        });
+        html += '</div>';
+      }
+      html += '</div>';
+    });
+    if (Object.keys(cr.camadas_em_deficit||{}).length) {
+      html += '<div style="background:var(--erb);padding:6px;border-radius:var(--r)">';
+      html += '<b style="color:var(--er)">Deficit:</b> ';
+      Object.keys(cr.camadas_em_deficit).forEach(function(mid){
+        html += 'Mapa '+mid+': '+(cr.camadas_em_deficit[mid])+' camada(s) | ';
+      });
+      html += 'Comprar aprox. '+(cr.tecido_a_comprar_m||0)+'m</div>';
+    }
+    html += '</div></details>';
+  });
+
+  // Sugestoes inteligentes de substituicao de rolos
+  html += _sugestoesAlocacao(data);
+
+  html += '<div class="btn-row" style="margin-top:8px">'
+    +'<button class="btn btn-ok" onclick="exportarAlocacao()">&#128190; Exportar Alocacao (.xlsx)</button></div>';
+  div.innerHTML = html;
+}
+
+async function exportarAlocacao() {
+  if (!window._ultimaAlocacao) return;
+  var ua = window._ultimaAlocacao;
+  var st = document.getElementById('aloc-st');
+  st.textContent = 'Gerando planilha...';
+  try {
+    var resp = await fetch('/exportar_alocacao', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({resultado: ua.data, referencia: ua.referencia}),
+    });
+    var res = await resp.json();
+    if (res.caminho) {
+      var nome = res.caminho.replace(/\\/g, '/').split('/').pop();
+      st.textContent = 'Baixando...';
+      var a = document.createElement('a');
+      a.href = '/baixar?arquivo=' + encodeURIComponent(nome);
+      a.download = nome;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      st.textContent = '✅ ' + nome;
+    } else {
+      st.textContent = 'Erro: ' + (res.erro || '?');
+    }
+  } catch(e) { st.textContent = 'Erro: ' + e.message; }
+}
+
+// ============================================================
+// AUTO-UPDATE v2.8.0
+// ============================================================
+async function verificarUpdate() {
+  try {
+    var d = await (await fetch('/checar_update')).json();
+    if (d.ha_update && d.versao_mais_recente) {
+      _updateDisponivel = d;
+      document.getElementById('update-msg').textContent =
+        'Nova versao disponivel: '+d.versao_mais_recente+' (atual: '+d.versao_atual+')';
+      document.getElementById('update-banner').style.display = 'flex';
+    }
+  } catch(e) {}
+}
+
+async function aplicarUpdate() {
+  if (!_updateDisponivel || !_updateDisponivel.asset_url) {
+    document.getElementById('update-st').textContent = 'URL do update nao disponivel. Baixe manualmente.';
+    return;
+  }
+  document.getElementById('update-st').textContent = 'Sinalizando update...';
+  try {
+    var resp = await fetch('/sinalizar_update', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        asset_url: _updateDisponivel.asset_url,
+        versao_nova: _updateDisponivel.versao_mais_recente,
+        notas: _updateDisponivel.notas || '',
+      }),
+    });
+    var res = await resp.json();
+    if (res.ok) {
+      document.getElementById('update-st').textContent = 'Update agendado. Encerrando para aplicar...';
+      setTimeout(function() {
+        fetch('/encerrar').catch(function(){});
+        document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;'
+          +'font-family:sans-serif;flex-direction:column;gap:16px">'
+          +'<b>Aplicando update...</b><p>O sistema sera reiniciado automaticamente.</p></div>';
+      }, 1500);
+    } else {
+      document.getElementById('update-st').textContent = 'Erro: '+(res.erro||'desconhecido');
+    }
+  } catch(e) { document.getElementById('update-st').textContent = 'Erro: '+e.message; }
+}
+</script>
+</body>
+</html>
