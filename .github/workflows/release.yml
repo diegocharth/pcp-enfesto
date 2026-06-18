@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'VERSION'   # só dispara quando VERSION mudar
+      - 'VERSION'
 
 jobs:
   release:
@@ -34,44 +34,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Criar zip da release
+      - name: Criar zip
         if: steps.check.outputs.exists == 'false'
-        run: |
-          VERSION="${{ steps.ver.outputs.version }}"
-          python3 - <<'PYEOF'
-import zipfile, os, sys
-
-version = open('VERSION').read().strip()
-prefix  = f'pcp_enfestos-{version}/'
-outzip  = f'pcp_enfestos-{version}.zip'
-
-# Dirs e arquivos a excluir do zip
-EXCLUIR_DIRS  = {'dados', '__pycache__', '.git', '.github', 'node_modules'}
-EXCLUIR_EXTS  = {'.pyc', '.pyo'}
-EXCLUIR_NOMES = set()  # arquivos específicos a excluir
-
-with zipfile.ZipFile(outzip, 'w', zipfile.ZIP_DEFLATED) as zf:
-    for root, dirs, files in os.walk('.'):
-        # Remover dirs excluídos in-place
-        dirs[:] = [d for d in dirs if d not in EXCLUIR_DIRS]
-        for fname in files:
-            if os.path.splitext(fname)[1] in EXCLUIR_EXTS:
-                continue
-            if fname in EXCLUIR_NOMES:
-                continue
-            full = os.path.join(root, fname)
-            arc  = prefix + full[2:]   # remove './'
-            zf.write(full, arc)
-
-print(f'Zip criado: {outzip}')
-PYEOF
+        run: python3 tools/make_release_zip.py
 
       - name: Criar GitHub Release
         if: steps.check.outputs.exists == 'false'
         run: |
           VERSION="${{ steps.ver.outputs.version }}"
-          TAG="v${VERSION}"
-          gh release create "$TAG" \
+          gh release create "v${VERSION}" \
             "pcp_enfestos-${VERSION}.zip" \
             --title "PCP Enfestos v${VERSION}" \
             --notes "Atualização automática — v${VERSION}"
