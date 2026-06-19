@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """
-PCP Enfestos v2.10.0
+PCP Enfestos v2.10.1
 Changelog:
+  v2.10.1 - FIX CRITICO do auto-update: o PCP_Enfestos.vbs chamava main.py direto,
+            pulando o launcher.py (onde mora o auto-update) -> a fabrica nunca
+            atualizava sozinha. Agora o VBS chama launcher.py. Esta versao precisa
+            chegar a fabrica UMA vez manualmente (recopiar a pasta / re-rodar INSTALAR
+            ou editar a linha do VBS); dai em diante as atualizacoes fluem sozinhas.
   v2.10.0 - Multi-ref MUITO mais rapido (branch-and-bound): calcula individuais
             primeiro e limita a busca de cada grupo combinado a n_mapas < baseline
             (combinar so vale se reduzir enfestos). Caso real: 30min -> ~3min, mesma
@@ -38,7 +43,7 @@ from urllib.parse import urlparse
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
-VERSION      = "2.10.0"
+VERSION      = "2.10.1"
 CORES_FILE        = os.path.join(BASE_DIR, "dados", "cores_salvas.json")
 PARAMS_FILE       = os.path.join(BASE_DIR, "dados", "parametros_salvos.json")
 PID_FILE          = os.path.join(BASE_DIR, "dados", "servidor.pid")

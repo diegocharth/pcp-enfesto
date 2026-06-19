@@ -93,7 +93,8 @@ End If
 ' CMD remove o par externo de aspas, deixando o comando corretamente aspado.
 Dim Q, strCmd
 Q = Chr(34)
-strCmd = "cmd /c " & Q & Q & strPython & Q & " " & Q & strDir & "\main.py" & Q & Q
+' Chama launcher.py: aplica auto-update via GitHub Releases e depois sobe o main.py.
+strCmd = "cmd /c " & Q & Q & strPython & Q & " " & Q & strDir & "\launcher.py" & Q & Q
 oShell.Run strCmd, 0, False
 
 ' ── 5. Aguardar servidor subir (ate 30 tentativas x 1s) ──────────────────────

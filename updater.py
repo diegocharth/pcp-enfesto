@@ -40,6 +40,10 @@ PRESERVAR = [
     "config.json",
     os.path.join("dados", "mapa_cores.json"),
     "dados",
+    # O proprio inicializador: o wscript pode manter o .vbs aberto enquanto roda,
+    # e sobrescreve-lo em uso poderia abortar o update inteiro (rollback). Como o
+    # VBS e estavel (so chama launcher.py), preservamos -- evita lock e reversao.
+    "PCP_Enfestos.vbs",
 ]
 
 
