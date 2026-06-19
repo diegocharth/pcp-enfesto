@@ -6,131 +6,135 @@ Regra hi=0 aplicada via check_viavel — sem mapa estratégico forçado.
 """
 
 import time
-from itertools import combinations
+from itertools import combinations, islice
 from engine.tolerancia import check_viavel, custo_desvio, desvio_absoluto_total
 from engine.mapas import gerar_mapas, filtrar_mapas_relevantes, priorizar_mapas, max_pecas_por_mapa
 
+try:
+    import numpy as _np
+    _HAS_NP = True
+except ImportError:
+    _HAS_NP = False
 
-def _resolver_folhas_cor(mapas_sel, grade_cor, tamanhos, limites_cor, max_f=120):
+
+def _resolver_folhas_cor(mapas_sel, grade_cor, tamanhos, limites_cor, max_f=120, A_pinv=None,
+                         W=6, sweeps=10):
     """
-    Acha folhas[k] >= 0 para N mapas tal que o cortado satisfaz os limites.
-    Retorna lista de folhas ou None.
-    Entre múltiplas soluções válidas, prefere a de menor desvio total.
+    Acha folhas[k] >= 0 para N mapas satisfazendo os limites (cortado dentro da tolerância),
+    minimizando o desvio total. Retorna a lista de folhas ou None se nenhum ponto viável.
+
+    Estratégia: busca local por coordenada (coordinate descent) partindo de 1-2 sementes
+    (centro de mínimos quadrados via numpy + estimativa sequencial por resíduo). Escala
+    linearmente com N — ao contrário do grid exponencial, resolve N>=5 de fato.
+
+    max_f: int (limite uniforme) ou list[int] (limite por slot restante).
+    A_pinv: pseudo-inversa precomputada por combo (evita recomputar por cor).
     """
     N = len(mapas_sel)
-    doms = []
-    for m in mapas_sel:
-        vals = sorted([(m.get(t, 0), t) for t in tamanhos], reverse=True)
-        doms.append(vals[0][1] if vals[0][0] > 0 else tamanhos[0])
-
     grade_max = max((grade_cor.get(t, 0) for t in tamanhos), default=0)
     if grade_max == 0:
         return [0] * N
 
-    def cortado(fs):
-        return {t: sum(fs[k] * mapas_sel[k].get(t, 0) for k in range(N)) for t in tamanhos}
+    # Normaliza max_f para lista por slot
+    if isinstance(max_f, (list, tuple)):
+        caps = [max(0, int(m)) for m in max_f]
+    else:
+        caps = [int(max_f)] * N
 
-    def desvio(fs):
-        ct = cortado(fs)
-        return sum(abs(ct[t] - grade_cor.get(t, 0)) for t in tamanhos)
+    # Pré-extrai linhas dos mapas e limites como tuplas indexadas por tamanho (rápido)
+    g    = [grade_cor.get(t, 0) for t in tamanhos]
+    rows = [[m.get(t, 0) for t in tamanhos] for m in mapas_sel]
+    lims = [limites_cor.get(t, (0, 0)) for t in tamanhos]
+    T    = len(tamanhos)
 
-    melhores = None
-    melhor_dev = float('inf')
+    def eval_fs(fs):
+        """Retorna (desvio_total, viavel) calculando o cortado uma única vez."""
+        d = 0; ok = True
+        for ti in range(T):
+            ct = 0
+            for k in range(N):
+                ct += fs[k] * rows[k][ti]
+            diff = ct - g[ti]
+            d += diff if diff >= 0 else -diff
+            lo, hi = lims[ti]
+            if diff < lo or diff > hi:
+                ok = False
+        return d, ok
 
+    # N=1: enumeração completa — rápido e exato
     if N == 1:
-        M = mapas_sel[0]; dv = M.get(doms[0], 0)
-        if dv == 0: return None
-        for f in range(0, min(max_f, int(grade_max / max(dv, 1)) + 6) + 1):
-            ct = {t: f * M.get(t, 0) for t in tamanhos}
-            if check_viavel(ct, grade_cor, limites_cor):
-                d = desvio([f])
-                if d < melhor_dev:
-                    melhor_dev = d; melhores = [f]
-                    if d == 0: break
-        return melhores
+        r0 = rows[0]
+        d_max = max(r0) if r0 else 0
+        if d_max == 0:
+            return None
+        best_fs = None; best_dev = float('inf')
+        for f in range(0, min(caps[0], int(grade_max / max(d_max, 1)) + 6) + 1):
+            d, ok = eval_fs([f])
+            if ok and d < best_dev:
+                best_dev = d; best_fs = [f]
+                if d == 0:
+                    return best_fs
+        return best_fs
 
-    if N == 2:
-        M0, M1 = mapas_sel; d0 = M0.get(doms[0], 0); d1 = M1.get(doms[1], 0)
-        if d0 == 0: return None
-        for f0 in range(0, min(max_f, int(grade_max / max(d0, 1)) + 5) + 1):
-            res0 = {t: grade_cor.get(t, 0) - f0 * M0.get(t, 0) for t in tamanhos}
-            if d1 > 0:
-                f1e = max(0, round(res0.get(doms[1], 0) / d1))
-                r1 = range(max(0, f1e - 4), min(max_f, f1e + 5))
+    # ── Sementes ────────────────────────────────────────────────────────────
+    starts = []
+    if _HAS_NP:
+        try:
+            b = _np.array(g, dtype=float)
+            if A_pinv is not None:
+                x_float = A_pinv @ b
             else:
-                r1 = range(0, 6)
-            for f1 in r1:
-                ct = cortado([f0, f1])
-                if check_viavel(ct, grade_cor, limites_cor):
-                    d = desvio([f0, f1])
-                    if d < melhor_dev:
-                        melhor_dev = d; melhores = [f0, f1]
-                        if d == 0: break
-            if melhor_dev == 0: break
-        return melhores
+                A = _np.array(rows, dtype=float).T  # (T x N)
+                x_float, _, _, _ = _np.linalg.lstsq(A, b, rcond=None)
+            starts.append(_np.clip(_np.round(x_float), 0,
+                                   _np.array(caps, dtype=float)).astype(int).tolist())
+        except Exception:
+            pass
+    # Estimativa sequencial por resíduo (semente independente; também serve sem numpy)
+    doms = [max(range(T), key=lambda ti, r=r: r[ti]) for r in rows]
+    rem  = list(g)
+    seq  = []
+    for i in range(N):
+        di = rows[i][doms[i]]
+        fi = max(0, round(rem[doms[i]] / di)) if di > 0 else 0
+        fi = min(fi, caps[i])
+        seq.append(fi)
+        for ti in range(T):
+            rem[ti] -= fi * rows[i][ti]
+    starts.append(seq)
 
-    if N == 3:
-        M0, M1, M2 = mapas_sel
-        d0 = M0.get(doms[0], 0); d1 = M1.get(doms[1], 0); d2 = M2.get(doms[2], 0)
-        if d0 == 0: return None
-        for f0 in range(0, min(max_f, int(grade_max / max(d0, 1)) + 4) + 1):
-            r0 = {t: grade_cor.get(t, 0) - f0 * M0.get(t, 0) for t in tamanhos}
-            if d1 > 0:
-                f1e = max(0, round(r0.get(doms[1], 0) / d1))
-                r1 = range(max(0, f1e - 3), min(max_f, f1e + 4))
-            else: r1 = range(0, 5)
-            for f1 in r1:
-                r1v = {t: r0[t] - f1 * M1.get(t, 0) for t in tamanhos}
-                if d2 > 0:
-                    f2e = max(0, round(r1v.get(doms[2], 0) / d2))
-                    r2 = range(max(0, f2e - 3), min(max_f, f2e + 4))
-                else: r2 = range(0, 5)
-                for f2 in r2:
-                    ct = cortado([f0, f1, f2])
-                    if check_viavel(ct, grade_cor, limites_cor):
-                        d = desvio([f0, f1, f2])
-                        if d < melhor_dev:
-                            melhor_dev = d; melhores = [f0, f1, f2]
-                            if d == 0: break
-                if melhor_dev == 0: break
-            if melhor_dev == 0: break
-        return melhores
-
-    if N == 4:
-        M0, M1, M2, M3 = mapas_sel
-        ds = [M.get(doms[i], 0) for i, M in enumerate(mapas_sel)]
-        if ds[0] == 0: return None
-        for f0 in range(0, min(max_f, int(grade_max / max(ds[0], 1)) + 4) + 1):
-            r0 = {t: grade_cor.get(t, 0) - f0 * M0.get(t, 0) for t in tamanhos}
-            if ds[1] > 0:
-                f1e = max(0, round(r0.get(doms[1], 0) / ds[1]))
-                r1 = range(max(0, f1e - 2), min(max_f, f1e + 3))
-            else: r1 = range(0, 4)
-            for f1 in r1:
-                r1v = {t: r0[t] - f1 * M1.get(t, 0) for t in tamanhos}
-                if ds[2] > 0:
-                    f2e = max(0, round(r1v.get(doms[2], 0) / ds[2]))
-                    r2 = range(max(0, f2e - 2), min(max_f, f2e + 3))
-                else: r2 = range(0, 4)
-                for f2 in r2:
-                    r2v = {t: r1v[t] - f2 * M2.get(t, 0) for t in tamanhos}
-                    if ds[3] > 0:
-                        f3e = max(0, round(r2v.get(doms[3], 0) / ds[3]))
-                        r3 = range(max(0, f3e - 2), min(max_f, f3e + 3))
-                    else: r3 = range(0, 4)
-                    for f3 in r3:
-                        ct = cortado([f0, f1, f2, f3])
-                        if check_viavel(ct, grade_cor, limites_cor):
-                            d = desvio([f0, f1, f2, f3])
-                            if d < melhor_dev:
-                                melhor_dev = d; melhores = [f0, f1, f2, f3]
-                                if d == 0: break
-                    if melhor_dev == 0: break
-                if melhor_dev == 0: break
-            if melhor_dev == 0: break
-        return melhores
-
-    return None
+    # ── Coordinate descent a partir de cada semente ─────────────────────────
+    best_fs = None; best_feas_dev = float('inf')
+    for s in starts:
+        fs = list(s)
+        cur_dev, cur_ok = eval_fs(fs)
+        if cur_ok and cur_dev < best_feas_dev:
+            best_feas_dev = cur_dev; best_fs = list(fs)
+        for _ in range(sweeps):
+            moved = False
+            for i in range(N):
+                orig = fs[i]
+                lo = max(0, orig - W); hi = min(caps[i], orig + W)
+                best_v = orig
+                base_dev, _ = eval_fs(fs)
+                best_local_dev = base_dev
+                for v in range(lo, hi + 1):
+                    if v == orig:
+                        continue
+                    fs[i] = v
+                    d, ok = eval_fs(fs)
+                    if ok and d < best_feas_dev:
+                        best_feas_dev = d; best_fs = list(fs)
+                    if d < best_local_dev:
+                        best_local_dev = d; best_v = v
+                fs[i] = best_v
+                if best_v != orig:
+                    moved = True
+            if not moved:
+                break
+        if best_feas_dev == 0:
+            break
+    return best_fs
 
 
 def _calcular_cortado(mapas_sel, folhas_dict, grade, tamanhos):
@@ -175,14 +179,17 @@ def _score_solucao(mapas_sel, folhas_dict, grade, tamanhos, config):
     return 0.65 * score_desvio + 0.25 * score_enc + 0.10 * score_op
 
 
-def resolver(grade, tamanhos, limites, config, callback_progresso=None, timeout_s=120):
+def resolver(grade, tamanhos, limites, config, callback_progresso=None, timeout_s=120,
+             min_n_mapas=1, skip_combos=0):
     """
     Resolve o plano de enfestos.
-    Premissa 1: menor numero de enfestos.
-    Premissa 2: menor desvio da grade.
-    Premissa 3: maior pecas/mapa.
-    hi=0 para um tamanho e respeitado via check_viavel (sem mapa estrategico forcado).
+    min_n_mapas: pula níveis já completamente explorados (para retomada).
+    skip_combos: pula as primeiras N combinações do nível min_n_mapas (retomada exata
+                 de onde o timeout anterior parou — só se aplica ao primeiro nível).
+    Sem limite de n_mapas — o timeout controla a parada.
     """
+    from math import comb as _comb
+
     def log(msg):
         if callback_progresso: callback_progresso(msg)
 
@@ -204,65 +211,122 @@ def resolver(grade, tamanhos, limites, config, callback_progresso=None, timeout_
     prior  = priorizar_mapas(rel, grade_total, tamanhos, top_n=400)
     log(f"Mapas candidatos: {len(prior)} (de {len(todos)} totais)")
 
+    # Ordena cores do maior para o menor grade total:
+    # (1) falha rápido em combos inválidas e (2) aloca capacidade de folhas para as cores maiores primeiro
+    cores = sorted(grade.keys(), key=lambda c: sum(grade[c].get(t, 0) for t in tamanhos), reverse=True)
+
     melhores = []
-    cores    = list(grade.keys())
     t_inicio = time.time()
     primeiro_n_com_solucao = 0
+    niveis_esgotados = []  # níveis 100% explorados sem solução
+    resume_n    = None     # nível onde o timeout interrompeu (para retomada exata)
+    resume_skip = 0        # nº de combinações já testadas nesse nível
 
-    # Budget por nivel: gasta no maximo 1/4 do timeout por N sem solucao.
-    # Se N=3 nao acha nada em 25% do tempo, passa para N=4 automaticamente.
-    budget_por_nivel = max(15, timeout_s // 4)
+    # Tamanho máximo do pool por n_mapas — balanceia cobertura vs tempo
+    lim_combo = {1: 125, 2: 125, 3: 80, 4: 50, 5: 30, 6: 20, 7: 15}
 
-    for n_mapas in range(1, 8):
+    # Limite de folhas mínimo teórico por cor (piso — baseado no grade total / max_pecas)
+    folhas_min_por_cor = {
+        c: -(-sum(grade[c].get(t, 0) for t in tamanhos) // max(1, max_pecas))
+        for c in cores
+    }
+    total_folhas_min = sum(folhas_min_por_cor.values())
+
+    for n_mapas in range(min_n_mapas, 50):
         if time.time() - t_inicio > timeout_s:
             log(f"Tempo esgotado ({timeout_s}s) — usando melhor resultado encontrado")
             break
 
-        log(f"\nTestando {n_mapas} mapa(s)...")
-        lim_combo = {1:400, 2:300, 3:200, 4:100, 5:60, 6:40, 7:30}
-        candidatos = prior[:lim_combo.get(n_mapas, 30)]
+        # Pré-check de capacidade: pula nível se matematicamente inviável
+        capacidade = n_mapas * max_folhas
+        if total_folhas_min > capacidade:
+            log(f"\nN={n_mapas}: inviável (mín {total_folhas_min} folhas necessárias, cap {capacidade}). Pulando.")
+            niveis_esgotados.append(n_mapas)
+            continue
 
-        combos_testadas = 0
-        combos_validas  = 0
-        t_nivel = time.time()
+        candidatos = prior[:min(len(prior), lim_combo.get(n_mapas, 10))]
+        if len(candidatos) < n_mapas:
+            log(f"  Candidatos insuficientes para {n_mapas} mapas. Parando.")
+            break
+
+        n_cand = len(candidatos)
+        total_combos = _comb(n_cand, n_mapas)
+
+        # Offset de retomada: só no primeiro nível desta execução
+        offset = skip_combos if (n_mapas == min_n_mapas and skip_combos > 0) else 0
+        if offset >= total_combos and total_combos > 0:
+            # Nível já foi totalmente testado numa execução anterior
+            log(f"\nN={n_mapas}: já testado completamente ({offset:,}). Avançando.")
+            niveis_esgotados.append(n_mapas)
+            continue
+
+        log(f"\nTestando {n_mapas} mapa(s)... ({total_combos:,} combinações de {n_cand} candidatos)")
 
         combos_iter = combinations(candidatos, n_mapas)
+        if offset > 0:
+            log(f"  ↻ Retomando de {offset:,}/{total_combos:,} ({offset/total_combos*100:.1f}%) já testadas")
+            combos_iter = islice(combos_iter, offset, None)
+
+        combos_testadas = offset
+        combos_validas  = 0
+        t_nivel         = time.time()
+        fully_exhausted = True
 
         for combo in combos_iter:
-            if time.time() - t_inicio > timeout_s: break
-            # Se nao achou nada neste N apos o budget, avanca para N+1
-            if not melhores and time.time() - t_nivel > budget_por_nivel:
-                log(f"  Sem solucao em {int(time.time()-t_nivel)}s — tentando {n_mapas+1} mapa(s)...")
+            if time.time() - t_inicio > timeout_s:
+                fully_exhausted = False
                 break
 
             combos_testadas += 1
+
+            # Progresso em tempo real a cada 25K combinações
+            if combos_testadas % 25000 == 0:
+                elapsed = max(time.time() - t_nivel, 0.1)
+                feitas  = combos_testadas - offset  # combos testadas NESTA execução
+                rate    = feitas / elapsed
+                pct     = combos_testadas / total_combos * 100
+                eta     = (total_combos - combos_testadas) / max(rate, 1)
+                log(f"  ↳ {combos_testadas:,}/{total_combos:,} ({pct:.1f}%) | {rate:.0f} comb/s | ETA {eta:.0f}s")
+
             folhas_sol = {}
             valida = True
+            # Rastreia folhas usadas por slot (soma de todas as cores processadas até aqui)
+            used_per_slot = [0] * n_mapas
 
-            # Resolver folhas por cor
+            # Precomputa A e A_pinv uma vez por combo — reusado para todas as cores
+            _A_pinv = None
+            if _HAS_NP and n_mapas >= 2:
+                try:
+                    _A = _np.array([[m.get(t, 0) for m in combo] for t in tamanhos], dtype=float)
+                    _A_pinv = _np.linalg.pinv(_A)
+                except Exception:
+                    _A_pinv = None
+
             for cor in cores:
+                # Capacidade restante por slot para esta cor
+                remaining = [max_folhas - used_per_slot[k] for k in range(n_mapas)]
+                if any(r <= 0 for r in remaining):
+                    valida = False; break
                 fs = _resolver_folhas_cor(
-                    list(combo), grade[cor], tamanhos, limites[cor], max_folhas
+                    list(combo), grade[cor], tamanhos, limites[cor], remaining,
+                    A_pinv=_A_pinv
                 )
                 if fs is None:
                     valida = False; break
                 folhas_sol[cor] = fs
+                for k in range(n_mapas):
+                    used_per_slot[k] += fs[k]
 
             if not valida: continue
-
-            # Verificar limite de folhas POR ENFESTO (soma de todas as cores)
-            for k in range(n_mapas):
-                if sum(folhas_sol[c][k] for c in cores) > max_folhas:
-                    valida = False; break
-
-            if not valida: continue
+            # Verificação de segurança (should never trigger with capacity-aware allocation)
+            if any(used_per_slot[k] > max_folhas for k in range(n_mapas)):
+                continue
 
             combos_validas += 1
             sc = _score_solucao(list(combo), folhas_sol, grade, tamanhos, config)
 
-            # Calcular desvio total para exibição
-            cortado = _calcular_cortado(list(combo), folhas_sol, grade, tamanhos)
-            dev_total = desvio_absoluto_total(cortado, grade, tamanhos)
+            cortado_tot = _calcular_cortado(list(combo), folhas_sol, grade, tamanhos)
+            dev_total   = desvio_absoluto_total(cortado_tot, grade, tamanhos)
             pecas_por_mapa = [sum(m.values()) for m in combo]
             total_folhas   = sum(sum(folhas_sol[c]) for c in cores)
 
@@ -272,10 +336,10 @@ def resolver(grade, tamanhos, limites, config, callback_progresso=None, timeout_
                 "folhas" : folhas_sol,
                 "score"  : sc,
                 "resumo" : {
-                    "n_mapas"           : n_mapas,
-                    "total_folhas"      : total_folhas,
-                    "pecas_por_mapa"    : pecas_por_mapa,
-                    "media_pecas_mapa"  : round(sum(pecas_por_mapa) / n_mapas, 1),
+                    "n_mapas"             : n_mapas,
+                    "total_folhas"        : total_folhas,
+                    "pecas_por_mapa"      : pecas_por_mapa,
+                    "media_pecas_mapa"    : round(sum(pecas_por_mapa) / n_mapas, 1),
                     "comprimento_por_mapa": [round(p * consumo, 4) for p in pecas_por_mapa],
                     "comprimento_total"   : round(sum(pecas_por_mapa) * consumo, 4),
                     "desvio_total"        : dev_total,
@@ -284,46 +348,77 @@ def resolver(grade, tamanhos, limites, config, callback_progresso=None, timeout_
                 }
             })
 
-        log(f"  Combinações testadas: {combos_testadas:,} | Válidas: {combos_validas}")
+        status = "completo ✓" if fully_exhausted else f"timeout ({int(time.time()-t_nivel)}s)"
+        log(f"  Combinações testadas: {combos_testadas:,} | Válidas: {combos_validas} | {status}")
+
+        if fully_exhausted and combos_validas == 0:
+            niveis_esgotados.append(n_mapas)
 
         if melhores:
             melhores.sort(key=lambda s: (
-                s["n_mapas"],                        # MENOS enfestos (primário)
-                s["resumo"]["desvio_total"],          # menor desvio
-                -s["resumo"]["media_pecas_mapa"],     # mais pecs/mapa
+                s["n_mapas"],
+                s["resumo"]["desvio_total"],
+                -s["resumo"]["media_pecas_mapa"],
             ))
             distintas = _filtrar_distintas(melhores, num_opcoes + 3)
             melhor_dev = distintas[0]["resumo"]["desvio_total"]
-            log(f"  -> Melhor: {n_mapas} mapas, desvio={melhor_dev}pcs, {distintas[0]['resumo']['media_pecas_mapa']}pcs/mapa")
+            log(f"  → Melhor: {n_mapas} mapas, desvio={melhor_dev}pcs, {distintas[0]['resumo']['media_pecas_mapa']}pcs/mapa")
 
             if primeiro_n_com_solucao == 0:
                 primeiro_n_com_solucao = n_mapas
 
-            # Parar se:
-            # 1. Desvio zero com o melhor N encontrado — perfeito
-            # 2. OU já temos opcoes suficientes no N mais baixo encontrado
             opcoes_no_melhor_n = [s for s in distintas if s["n_mapas"] == primeiro_n_com_solucao]
             if melhor_dev == 0 and len(opcoes_no_melhor_n) >= num_opcoes:
                 log(f"\nOK Desvio zero com {n_mapas} mapa(s). Parando.")
                 return distintas[:num_opcoes]
-
             if len(opcoes_no_melhor_n) >= num_opcoes and n_mapas >= primeiro_n_com_solucao + 1:
-                log(f"\nOK {num_opcoes} opcoes com {primeiro_n_com_solucao} mapa(s). Desvio={melhor_dev}pcs.")
+                log(f"\nOK {num_opcoes} opções com {primeiro_n_com_solucao} mapa(s). Desvio={melhor_dev}pcs.")
+                return distintas[:num_opcoes]
+            if n_mapas >= primeiro_n_com_solucao + 2 and len(distintas) >= num_opcoes:
+                log(f"\nOK Explorado N={primeiro_n_com_solucao}..{n_mapas}. Desvio={melhor_dev}pcs.")
                 return distintas[:num_opcoes]
 
-            if n_mapas >= primeiro_n_com_solucao + 2 and len(distintas) >= num_opcoes:
-                log(f"\nOK Explorado N={primeiro_n_com_solucao} a N={n_mapas}. Desvio={melhor_dev}pcs.")
-                return distintas[:num_opcoes]
+        if not fully_exhausted:
+            # Timeout no meio deste nível — guarda ponto exato para retomada
+            resume_n    = n_mapas
+            resume_skip = combos_testadas
+            break
 
     melhores.sort(key=lambda s: (
-        s["n_mapas"],
-        s["resumo"]["desvio_total"],
-        -s["resumo"]["media_pecas_mapa"],
+        s["n_mapas"], s["resumo"]["desvio_total"], -s["resumo"]["media_pecas_mapa"],
     ))
     result = _filtrar_distintas(melhores, num_opcoes)
+
+    # Determina ponto exato de retomada para o botão "Continuar"
+    if resume_n is not None:
+        # Parou no meio de um nível por timeout — retoma exatamente daí
+        proximo_n   = resume_n
+        skip_proximo = resume_skip
+    elif niveis_esgotados:
+        # Todos os níveis testados foram completamente esgotados — vai para o próximo
+        proximo_n   = max(niveis_esgotados) + 1
+        skip_proximo = 0
+    else:
+        # Nenhum nível testado parou por timeout nem esgotou: caminho de "candidatos
+        # insuficientes" (nível atual nunca foi testado). NÃO avança além dele.
+        proximo_n   = n_mapas if 'n_mapas' in dir() else min_n_mapas
+        skip_proximo = 0
+
     if result:
-        log(f"\nDesvio da melhor solucao: {result[0]['resumo']['desvio_total']} pecas")
-        log(f"Media pecas/mapa: {result[0]['resumo']['media_pecas_mapa']}")
+        log(f"\nDesvio da melhor solução: {result[0]['resumo']['desvio_total']} peças")
+    elif resume_n is not None:
+        log(f"\nTimeout no nível {resume_n} ({resume_skip:,} combinações testadas).")
+        log(f"Use 'Continuar' para retomar de {resume_skip:,} combinações no nível {resume_n}.")
+    elif niveis_esgotados:
+        log(f"\nNíveis completamente explorados (sem solução): {niveis_esgotados}")
+        log(f"Use 'Continuar' para buscar com {proximo_n}+ mapas.")
+
+    # Salva info para main.py retornar ao frontend
+    resolver._niveis_esgotados   = niveis_esgotados
+    resolver._ultimo_n_explorado = n_mapas if 'n_mapas' in dir() else min_n_mapas
+    resolver._proximo_n          = proximo_n
+    resolver._skip_combos        = skip_proximo
+
     return result[:num_opcoes]
 
 

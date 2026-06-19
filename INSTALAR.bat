@@ -164,6 +164,22 @@ if !errorlevel! equ 0 (
     echo         OK - openpyxl instalado.
 )
 
+:: --- numpy (solver: centro de minimos quadrados p/ coordinate descent) ---
+%PYTHON% -c "import numpy" >nul 2>&1
+if !errorlevel! equ 0 (
+    echo         numpy ja instalado. OK.
+) else (
+    echo         Instalando numpy...
+    %PYTHON% -m pip install numpy --quiet --no-warn-script-location
+    %PYTHON% -c "import numpy" >nul 2>&1
+    if !errorlevel! neq 0 (
+        echo         Aviso: numpy nao instalado. O solver usara semente alternativa ^(mais lenta^).
+        echo         Para instalar manualmente: pip install numpy
+    ) else (
+        echo         OK - numpy instalado.
+    )
+)
+
 :: --- pdfplumber (importar rolos do ERP via PDF) ---
 %PYTHON% -c "import pdfplumber" >nul 2>&1
 if !errorlevel! equ 0 (

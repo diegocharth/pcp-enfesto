@@ -138,7 +138,7 @@ input:focus,select:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 2p
 <body>
 <div class="hdr">
   <h1>⚙️ PCP Enfestos</h1>
-  <div class="hdr-r"><span id="ver-sp">v2.8.0</span><span>Charth</span></div>
+  <div class="hdr-r"><span id="ver-sp">v2.9.0</span><span>Charth</span></div>
 </div>
 <div class="wrap">
 
@@ -187,7 +187,7 @@ input:focus,select:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 2p
   <div class="field" style="max-width:300px">
     <label>Timeout da busca (segundos)</label>
     <input type="number" id="timeout" value="120" min="30" max="180" step="30">
-    <div class="hint">Tempo por referência individual (máx 180s). Agrupamentos usam min(360s, timeout × n_refs).</div>
+    <div class="hint">Tempo por referência individual. Agrupamentos usam 240s × n_refs (ex: 3 refs = 720s, 2 refs = 480s).</div>
   </div>
 </div>
 
@@ -289,6 +289,8 @@ input:focus,select:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 2p
 <div class="btn-row">
   <button class="btn btn-p" id="btn-calc" onclick="calcular()">▶ Calcular Plano de Corte</button>
   <button class="btn btn-s" id="btn-cancel" style="display:none;background:var(--er);color:#fff;border-color:var(--er)" onclick="cancelarCalculo()">⛔ Cancelar</button>
+  <button class="btn btn-s" id="btn-continuar" style="display:none;background:#1a6e2e;color:#fff;border-color:#1a6e2e">🔄 Continuar</button>
+  <button class="btn btn-s" id="btn-copiar-log" style="display:none" onclick="copiarLog()">📋 Copiar Log</button>
   <button class="btn btn-s" onclick="limpar()">↺ Limpar</button>
   <button class="btn btn-s" onclick="encerrarSistema()" title="Encerra o servidor e fecha o sistema" style="margin-left:auto;color:var(--er);border-color:var(--er)">â¹ Encerrar</button>
   <span class="sm" id="sg"></span>
@@ -343,7 +345,7 @@ input:focus,select:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 2p
   <!-- Input manual de rolos por cor -->
   <div id="aloc-rolos-por-cor">
     <div style="font-size:12px;font-weight:600;color:var(--tx2);margin-bottom:6px">
-      Rolos por cor (comprimentos em metros, separados por virgula):
+      Rolos por cor (metros; separe os rolos por ponto-e-virgula; a virgula e decimal. Ex: 49,60; 43; 59):
     </div>
     <div id="aloc-cores-lista" style="display:flex;flex-direction:column;gap:6px"></div>
     <div id="aloc-sem-cores" class="hint" style="display:none">
@@ -379,6 +381,18 @@ let pid = 1;
 let resultado = null;
 let _abortCtrl = null;
 let _calculoCancelado = false;
+
+function copiarLog() {
+  const txt = document.getElementById('pbl').textContent;
+  navigator.clipboard.writeText(txt).then(() => {
+    const btn = document.getElementById('btn-copiar-log');
+    const prev = btn.textContent;
+    btn.textContent = '✅ Copiado!';
+    setTimeout(() => { btn.textContent = prev; }, 2000);
+  }).catch(() => {
+    prompt('Copie o log abaixo (Ctrl+A, Ctrl+C):', document.getElementById('pbl').textContent);
+  });
+}
 
 function cancelarCalculo() {
   _calculoCancelado = true;
@@ -944,6 +958,8 @@ async function calcular(){
   document.getElementById('pb').style.display='block';
   document.getElementById('rb').style.display='none';
   document.getElementById('btn-calc').disabled=true;
+  document.getElementById('btn-continuar').style.display='none';
+  document.getElementById('btn-copiar-log').style.display='none';
   const logEl=document.getElementById('pbl');
   logEl.textContent='';
   document.getElementById('pbb').style.width='3%';
@@ -958,8 +974,25 @@ async function calcular(){
     const idxs = refs.map((_, i) => i);
     const maxSz = N <= 4 ? N : Math.min(N, 3);
 
-    // Orçamento total = timeout × N (distribuído dinamicamente)
-    const totalBudget = timeout * N;
+    // ── Tempos APRENDIDOS (ETA realista) + tetos de tempo adaptativos ──
+    // A ETA usa o tempo mediano ja medido para cada classe de problema (cores x refs).
+    // Sem historico, cai numa estimativa enxuta -- so para exibir. O TETO de tempo
+    // (timeout) permanece generoso ate haver dados, para nunca cortar um bom solve
+    // antes da hora; depois de aprender, aperta para ~3x a mediana medida.
+    let _TL = {};
+    try { _TL = (((await (await fetch('/aprendizado')).json()) || {}).tempos) || {}; } catch(e) {}
+
+    const nCoresRef   = ri => cores.filter(c => tamanhos.some(t => (refs[ri].grade[c] && refs[ri].grade[c][t] || 0) > 0)).length;
+    const nCoresGrupo = g  => g.reduce((s,ri)=>s+nCoresRef(ri),0);
+    const keyGrupo    = g  => 'grupo:'+g.length+'r:'+nCoresGrupo(g)+'c';
+    const keyIndiv    = ri => 'indiv:'+nCoresRef(ri)+'c';
+
+    // ETA (segundos) -- aprendido quando ha dados; senao formula enxuta (display)
+    const etaGrupo = g  => _TL[keyGrupo(g)] != null ? _TL[keyGrupo(g)] : (6 + 5*nCoresGrupo(g));
+    const etaIndiv = ri => _TL[keyIndiv(ri)] != null ? _TL[keyIndiv(ri)] : (4 + 4*nCoresRef(ri));
+    // TETO de tempo (timeout) -- generoso ate aprender; depois ~3x a mediana
+    const tGrupoCalc = g  => { const v=_TL[keyGrupo(g)]; return v!=null ? Math.min(240*g.length, Math.max(20, Math.round(v*3))) : Math.min(180, 60*g.length); };
+    const tIndivCalc = ri => { const v=_TL[keyIndiv(ri)]; return v!=null ? Math.min(timeout, Math.max(20, Math.round(v*3))) : timeout; };
 
     _calculoCancelado = false;
     _abortCtrl = new AbortController();
@@ -967,129 +1000,144 @@ async function calcular(){
 
     const cache={};
 
-    // Subgrupos (tamanho >= 2), do maior para o menor
+    // Avalia todas as particoes possiveis com o que ja foi calculado no cache.
+    // Retorna lista ordenada por total de enfestos (menor = melhor).
+    function _avaliarParticoes(){
+      const out=[];
+      for(const particao of _particoes(idxs)){
+        let total=0, ok=true; const grupos=[];
+        for(const g of particao){
+          const k=[...g].sort((a,b)=>a-b).join(',');
+          const r=cache[k];
+          if(!r||r.erro){ ok=false; break; }
+          total+=r.nEnfestos;
+          grupos.push({idxs:g,key:k,nEnfestos:r.nEnfestos,tipo:r.tipo,data:r.data});
+        }
+        if(ok) out.push({grupos,total});
+      }
+      out.sort((a,b)=>a.total-b.total);
+      return out;
+    }
+
+    // Subgrupos (tamanho >= 2), do MENOR para o maior -- pares antes de trios.
+    // Assim achamos boas particoes cedo e os grupos maiores ja entram com poda forte.
     const subgrupos=[];
-    for(let sz=maxSz;sz>=2;sz--)
-      _combis(idxs,sz).forEach(c=>subgrupos.push(c));
+    for(let sz=2;sz<=maxSz;sz++) _combis(idxs,sz).forEach(c=>subgrupos.push(c));
 
-    const totalSteps=subgrupos.length+N;
-    let step=0, budgetGasto=0;
+    const totalSteps=N+subgrupos.length;
+    let step=0;
+    const fmtT = s => s>=90 ? '~'+Math.round(s/60)+'min' : '~'+Math.round(s)+'s';
+    const _temHist = Object.keys(_TL).length>0;
+    const etaTotal = idxs.reduce((s,ri)=>s+etaIndiv(ri),0) + subgrupos.reduce((s,g)=>s+etaGrupo(g),0);
+    L(N+' refs -- '+N+' individuais + '+subgrupos.length+' agrupamentos (exaustivo, com poda)');
+    L('   Tempo estimado: '+fmtT(etaTotal)+(_temHist?' (aprendido, melhora com o uso)':' (estimativa inicial)')+'\n');
 
-    L(`📋 ${N} refs — ${subgrupos.length} agrupamentos + ${N} individuais`);
-    L(`   Orçamento total: ${totalBudget}s (distribuído dinamicamente)\n`);
-
-    // Helper: calcula timeout para o próximo grupo dado o orçamento restante
-    const tProximo = (stepsRestantes) =>
-      Math.max(20, Math.floor((totalBudget - budgetGasto) / Math.max(1, stepsRestantes)));
-
-    // ── Fase 1: Agrupamentos via /calcular_grupo (cada ref com consumo próprio) ──
-    for(const grupo of subgrupos){
-      if(_calculoCancelado){ L('⛔ Cálculo cancelado.'); break; }
-      const key=[...grupo].sort((a,b)=>a-b).join(',');
+    // ── Fase A: individuais primeiro (baseline barato; o que a fabrica faz manual) ──
+    const indiv={};  // ri -> nEnfestos (ausente se falhou)
+    for(let ri=0; ri<N; ri++){
+      if(_calculoCancelado){ L('Calculo cancelado.'); break; }
       step++;
+      const ref=refs[ri], key=String(ri);
+      const gradeR=montarGradeRef(ref);
+      const consR=(ref.consumo&&ref.consumo>0)?ref.consumo:1.0645;
+      const tI=tIndivCalc(ri);
+      L(`[${step}/${totalSteps}] ${ref.nome||'Ref '+(ri+1)} individual (teto ${tI}s)...`);
+      _setEtapa(`i${ri}`,ref.nome||'Ref '+(ri+1),'atual');
+      if(!Object.values(gradeR).some(g=>Object.values(g).some(v=>v>0))){
+        cache[key]={erro:'Sem pecas'}; _setEtapa(`i${ri}`,'Sem pecas','erro'); continue;
+      }
+      try{
+        const resp=await fetch('/calcular',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({...baseParams,grade:gradeR,referencia:ref.nome||`Ref ${ri+1}`,consumo:consR,timeout:tI}),
+          signal:_abortCtrl.signal});
+        const d=await resp.json(); await _drainProgresso();
+        if(d.erro){ L('  Sem solucao'); cache[key]={erro:d.erro}; _setEtapa(`i${ri}`,'Sem sol.','erro'); }
+        else { const n=d.solucoes[0].resumo.n_mapas; indiv[ri]=n;
+          const tg=d.cache?'cache':Math.round(d.tempo_s||0)+'s';
+          L('  OK '+n+' enfesto(s) ('+tg+')'); cache[key]={nEnfestos:n,tipo:'single',data:d}; _setEtapa(`i${ri}`,n+' enf.','ok'); }
+      }catch(e){
+        if(e.name==='AbortError'){ L('Cancelado.'); cache[key]={erro:'Cancelado'}; break; }
+        L('  Erro: '+e.message); cache[key]={erro:e.message}; _setEtapa(`i${ri}`,'Erro','erro');
+      }
+    }
+
+    // Melhor particao conhecida (inicio = tudo separado). Guia a poda.
+    let bestTotal = _avaliarParticoes()[0]?.total ?? Infinity;
+
+    // ── Fase B: grupos combinados com poda branch-and-bound ──
+    // Combinar um grupo so vale se usar MENOS enfestos que mante-lo separado
+    // (baseline) E que possa formar uma particao melhor que a atual (bestTotal).
+    // Qualquer combinacao com enfestos >= esse teto e dominada -> nem buscamos.
+    for(const grupo of subgrupos){
+      if(_calculoCancelado){ L('Calculo cancelado.'); break; }
+      step++;
+      const key=[...grupo].sort((a,b)=>a-b).join(',');
+      const rG=grupo.map(ri=>refs[ri].nome||`Ref ${ri+1}`).join(' + ');
+      const lbl=rG.length>28?rG.substring(0,25)+'...':rG;
+      _setEtapa(`g${key}`,lbl,'atual');
+
+      // Poda branch-and-bound (nunca descarta solucao melhor nem empate util):
+      //  - baseline-1: combinar so vale se usar MENOS enfestos que separar o grupo;
+      //  - bestTotal-1: qualquer particao melhor/igual usando o grupo precisa que
+      //    o combinado tenha <= bestTotal-1 enfestos.
+      const temTodos = grupo.every(ri=>indiv[ri]!=null);
+      const baselineG = temTodos ? grupo.reduce((s,ri)=>s+indiv[ri],0) : 99;
+      const capGlobal = isFinite(bestTotal) ? (bestTotal - 1) : 99;
+      const cap = Math.max(0, Math.min(baselineG-1, capGlobal));
+
+      if(cap < 1){
+        L(`[${step}/${totalSteps}] ${rG}: combinar nao reduz enfestos (poda). Pulando.`);
+        cache[key]={erro:'sem ganho (poda)'}; _setEtapa(`g${key}`,'sem ganho','ok'); continue;
+      }
+
       const refsG=grupo.map(ri=>({
         nome:refs[ri].nome||`Ref ${ri+1}`,
         grade:montarGradeRef(refs[ri]),
         consumo:(refs[ri].consumo&&refs[ri].consumo>0)?refs[ri].consumo:1.0645,
       }));
-      const rG=grupo.map(ri=>refs[ri].nome||`Ref ${ri+1}`).join(' + ');
-      const tG=tProximo(totalSteps - step + 1);
-      const lbl=rG.length>28?rG.substring(0,25)+'…':rG;
-      L(`[${step}/${totalSteps}] ${rG} combinado (${tG}s, orç.restante: ${Math.max(0,Math.round(totalBudget-budgetGasto))}s)...`);
-      _setEtapa(`g${key}`,lbl,'atual');
+      const tG=tGrupoCalc(grupo);
+      L(`[${step}/${totalSteps}] ${rG} combinado (ate ${cap} enf., teto ${tG}s)...`);
       if(!refsG.some(r=>Object.values(r.grade).some(g=>Object.values(g).some(v=>v>0)))){
-        cache[key]={erro:'Grade vazia'}; _setEtapa(`g${key}`,'⚠️ Vazia','erro'); continue;
+        cache[key]={erro:'Grade vazia'}; _setEtapa(`g${key}`,'Vazia','erro'); continue;
       }
-      const t0=performance.now();
       try{
         const resp=await fetch('/calcular_grupo',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({...baseParams,refs:refsG,referencia:rG,timeout:tG}),
+          body:JSON.stringify({...baseParams,refs:refsG,referencia:rG,timeout:tG,n_mapas_max:cap}),
           signal:_abortCtrl.signal});
-        const d=await resp.json();
-        await _drainProgresso();
-        budgetGasto+=(performance.now()-t0)/1000;
-        if(d.erro){
-          L(`  ❌ Sem solução combinada`); cache[key]={erro:d.erro}; _setEtapa(`g${key}`,'❌ Sem sol.','erro');
-        } else {
-          const n=d.solucoes[0].resumo.n_mapas;
-          L(`  ✅ ${n} enfesto(s) combinado(s)`); cache[key]={nEnfestos:n,tipo:'multiref',data:d}; _setEtapa(`g${key}`,`✅ ${n} enf.`,'ok');
+        const d=await resp.json(); await _drainProgresso();
+        if(d.erro){ L('  Combinar nao ajuda este grupo'); cache[key]={erro:d.erro}; _setEtapa(`g${key}`,'sem ganho','ok'); }
+        else { const n=d.solucoes[0].resumo.n_mapas;
+          const tg=d.cache?'cache':Math.round(d.tempo_s||0)+'s';
+          L('  OK '+n+' enfesto(s) combinado(s) ('+tg+')'); cache[key]={nEnfestos:n,tipo:'multiref',data:d}; _setEtapa(`g${key}`,n+' enf.','ok');
+          const novo=_avaliarParticoes()[0]?.total;
+          if(novo!=null && novo<bestTotal){ bestTotal=novo; L('  -> melhor particao agora: '+bestTotal+' enfestos'); }
         }
       }catch(e){
-        budgetGasto+=(performance.now()-t0)/1000;
-        if(e.name==='AbortError'){ L('⛔ Cancelado.'); cache[key]={erro:'Cancelado'}; break; }
-        L(`  ❌ ${e.message}`); cache[key]={erro:e.message}; _setEtapa(`g${key}`,'❌ Erro','erro');
-      }
-    }
-
-    // ── Fase 2: Individuais ──
-    for(let ri=0;ri<N;ri++){
-      if(_calculoCancelado){ L('⛔ Cálculo cancelado.'); break; }
-      const ref=refs[ri]; const key=String(ri); step++;
-      const gradeR=montarGradeRef(ref);
-      const consR=(ref.consumo&&ref.consumo>0)?ref.consumo:1.0645;
-      const tI=tProximo(totalSteps - step + 1);
-      L(`[${step}/${totalSteps}] ${ref.nome||'Ref '+(ri+1)} individual (${tI}s, ${consR.toFixed(4)}m/pça)...`);
-      _setEtapa(`i${ri}`,ref.nome||'Ref '+(ri+1),'atual');
-      if(!Object.values(gradeR).some(g=>Object.values(g).some(v=>v>0))){
-        cache[key]={erro:'Sem peças'}; _setEtapa(`i${ri}`,'⚠️ Sem peças','erro'); continue;
-      }
-      const t0=performance.now();
-      try{
-        const resp=await fetch('/calcular',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({...baseParams,grade:gradeR,referencia:ref.nome||`Ref ${ri+1}`,consumo:consR,timeout:tI}),
-          signal:_abortCtrl.signal});
-        const d=await resp.json();
-        await _drainProgresso();
-        budgetGasto+=(performance.now()-t0)/1000;
-        if(d.erro){
-          L(`  ❌ ${d.erro}`); cache[key]={erro:d.erro}; _setEtapa(`i${ri}`,'❌ Sem sol.','erro');
-        } else {
-          const n=d.solucoes[0].resumo.n_mapas;
-          L(`  ✅ ${n} enfesto(s)`); cache[key]={nEnfestos:n,tipo:'single',data:d}; _setEtapa(`i${ri}`,`✅ ${n} enf.`,'ok');
-        }
-      }catch(e){
-        budgetGasto+=(performance.now()-t0)/1000;
-        if(e.name==='AbortError'){ L('⛔ Cancelado.'); cache[key]={erro:'Cancelado'}; break; }
-        L(`  ❌ ${e.message}`); cache[key]={erro:e.message}; _setEtapa(`i${ri}`,'❌ Erro','erro');
+        if(e.name==='AbortError'){ L('Cancelado.'); cache[key]={erro:'Cancelado'}; break; }
+        L('  Erro: '+e.message); cache[key]={erro:e.message}; _setEtapa(`g${key}`,'Erro','erro');
       }
     }
 
     document.getElementById('pbb').style.width='100%';
     document.getElementById('btn-cancel').style.display='none';
 
-    // ── Fase 3: Avaliar todos os particionamentos (com o que foi calculado) ──
-    const todasParticoes=_particoes(idxs);
-    const validos=[];
-    for(const particao of todasParticoes){
-      let total=0,ok=true;
-      const grupos=[];
-      for(const g of particao){
-        const key=[...g].sort((a,b)=>a-b).join(',');
-        const r=cache[key];
-        if(!r||r.erro){ok=false;break;}
-        total+=r.nEnfestos;
-        grupos.push({idxs:g,key,nEnfestos:r.nEnfestos,tipo:r.tipo,data:r.data});
-      }
-      if(ok) validos.push({grupos,total});
-    }
-    validos.sort((a,b)=>a.total-b.total);
-
+    // ── Resultado final ──
+    const validos=_avaliarParticoes();
     const foiCancelado=_calculoCancelado;
     if(validos.length===0){
-      L(foiCancelado?'\n⛔ Cancelado — nenhuma combinação completa encontrada até agora.'
-        :'\n❌ Nenhuma combinação obteve solução completa.');
-      const parciais=Object.entries(cache).filter(([,v])=>v.data).map(([k,v])=>`[${k}]: ${v.nEnfestos} enf.`);
-      if(parciais.length) L(`Parciais: ${parciais.join(' · ')}`);
-      _setEtapa('fim',foiCancelado?'⛔ Cancelado':'❌ Sem solução','erro');
+      L(foiCancelado?'\nCancelado -- nenhuma combinacao completa.' : '\nNenhuma combinacao obteve solucao completa.');
+      _setEtapa('fim',foiCancelado?'Cancelado':'Sem solucao','erro');
     } else {
       const best=validos[0];
       const descBest=best.grupos.map(g=>g.idxs.length===1
         ?(refs[g.idxs[0]].nome||'Ref '+(g.idxs[0]+1))
         :'['+g.idxs.map(i=>refs[i].nome||'Ref '+(i+1)).join('+')+']'
       ).join(' + ');
-      L(`\n🏆 MELHOR${foiCancelado?' (parcial)':''}: ${descBest} = ${best.total} enfestos`);
-      _setEtapa('fim',`✅ ${best.total} enf.${foiCancelado?' ⛔':''}`,foiCancelado?'erro':'ok');
+      L(`\nMELHOR${foiCancelado?' (parcial)':''}: ${descBest} = ${best.total} enfestos`);
+      _setEtapa('fim',best.total+' enf.'+(foiCancelado?' (parcial)':''),foiCancelado?'erro':'ok');
+      window._resultadoMulti={grupos:best.grupos};   // habilita a Alocacao de Rolos
       renderResultadoGrupos(validos);
+      try { atualizarCoresAlocacao(); } catch(e) {}
     }
     document.getElementById('btn-calc').disabled=false;
     _abortCtrl=null;
@@ -1106,7 +1154,67 @@ async function calcular(){
     return;
   }
   const consumo=consumos[0];
-  const payload={referencia,consumo,mesa,max_folhas,num_opcoes,tol_abs,tol_pct,criterio,peso_enc,peso_op,timeout,tamanhos,grade,regras_especiais:regras};
+  const payload={referencia,consumo,mesa,max_folhas,num_opcoes,tol_abs,tol_pct,criterio,peso_enc,peso_op,timeout,tamanhos,grade,regras_especiais:regras,min_n_mapas:1,skip_combos:0};
+
+  // ── Retomada reutilizável: re-arma o botão Continuar a cada timeout ──
+  async function continuarBusca(proxN, skipC){
+    const btnCont = document.getElementById('btn-continuar');
+    btnCont.style.display='none';
+    document.getElementById('btn-copiar-log').style.display='none';
+    payload.min_n_mapas = proxN;
+    payload.skip_combos = skipC;
+    payload.timeout     = timeout;
+    document.getElementById('btn-calc').disabled=true;
+    if(skipC>0) L(`\n▶ Retomando nível ${proxN} a partir de ${skipC.toLocaleString()} combinações...`);
+    else        L(`\n▶ Continuando busca a partir de ${proxN} mapa(s)...`);
+    _calculoCancelado=false;
+    _abortCtrl=new AbortController();
+    document.getElementById('btn-cancel').style.display='inline-flex';
+    const pi=setInterval(async()=>{try{const d=await(await fetch('/progresso')).json();d.msgs.forEach(msg=>_atualizarProgresso(msg));}catch(e){}},600);
+    try{
+      const r2=await fetch('/calcular',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:_abortCtrl.signal});
+      clearInterval(pi);
+      const d2=await r2.json();
+      await _drainProgresso();
+      if(d2.erro){
+        L('❌ '+d2.erro);
+        if(d2.niveis_esgotados && d2.niveis_esgotados.length>0){
+          L(`   Níveis esgotados sem solução: [${d2.niveis_esgotados.join(', ')}] mapa(s)`);
+        }
+        const nxt     = d2.proximo_n   || proxN+1;
+        const skipNxt = d2.skip_combos || 0;
+        btnCont.textContent = skipNxt>0
+          ? `🔄 Continuar (nível ${nxt} @ ${skipNxt.toLocaleString()}, +${timeout}s)`
+          : `🔄 Continuar (${nxt}+ mapas, +${timeout}s)`;
+        btnCont.style.display='inline-flex';
+        btnCont.onclick = () => continuarBusca(nxt, skipNxt);
+      } else {
+        L('✅ Solução encontrada!');
+        document.getElementById('pbb').style.width='100%';
+        _setEtapa('fim','✅ Concluído','ok');
+        resultado=d2; renderResultado(d2);
+        try { atualizarCoresAlocacao(); } catch(e) {}
+      }
+    }catch(e2){
+      clearInterval(pi);
+      if(e2.name==='AbortError'){
+        L('⛔ Cancelado.');
+        _setEtapa('fim','⛔ Cancelado','erro');
+        // Re-exibe o botão Continuar: o ponto de retomada (proxN, skipC) ainda é válido
+        btnCont.textContent = skipC>0
+          ? `🔄 Continuar (nível ${proxN} @ ${skipC.toLocaleString()}, +${timeout}s)`
+          : `🔄 Continuar (${proxN}+ mapas, +${timeout}s)`;
+        btnCont.onclick = () => continuarBusca(proxN, skipC);
+        btnCont.style.display='inline-flex';
+      } else {
+        L('❌ '+e2.message);
+      }
+    }
+    document.getElementById('btn-calc').disabled=false;
+    document.getElementById('btn-cancel').style.display='none';
+    document.getElementById('btn-copiar-log').style.display='inline-flex';
+    _abortCtrl=null;
+  }
 
   L(`Referência: ${referencia}`);
   L(`Cores: ${cores.join(', ')} | Tamanhos: ${tamanhos.join(', ')}`);
@@ -1127,16 +1235,31 @@ async function calcular(){
     const data=await resp.json();
     if(data.erro){
       L('❌ '+data.erro);
+      if(data.niveis_esgotados && data.niveis_esgotados.length>0){
+        L(`   Níveis completamente explorados sem solução: [${data.niveis_esgotados.join(', ')}] mapa(s)`);
+      }
       _setEtapa('erro','❌ Sem solução','erro');
       document.getElementById('pbb').style.width='100%';
       document.getElementById('btn-calc').disabled=false;
       document.getElementById('btn-cancel').style.display='none';
+      // Botão Continuar — retoma exatamente de onde parou (nível + offset)
+      const proxN = data.proximo_n  || 1;
+      const skipC = data.skip_combos || 0;
+      const btnCont = document.getElementById('btn-continuar');
+      btnCont.textContent = skipC>0
+        ? `🔄 Continuar (nível ${proxN} @ ${skipC.toLocaleString()}, +${timeout}s)`
+        : `🔄 Continuar (${proxN}+ mapas, +${timeout}s)`;
+      btnCont.style.display='inline-flex';
+      btnCont.onclick = () => continuarBusca(proxN, skipC);
+      // Botão Copiar Log
+      document.getElementById('btn-copiar-log').style.display='inline-flex';
       return;
     }
     document.getElementById('pbb').style.width='100%';
     L('✅ Concluído!');
     _setEtapa('fim','✅ Concluído','ok');
     resultado=data; renderResultado(data);
+    document.getElementById('btn-copiar-log').style.display='inline-flex';
     try { atualizarCoresAlocacao(); } catch(e) {}
   }catch(e){
     clearInterval(pollingInterval);
@@ -1419,7 +1542,21 @@ async function exportarMultiref(data){
 async function exportarTodos(){
   if(window._multiGrupoValidos){
     const best=window._multiGrupoValidos[0];
-    for(let gpi=0;gpi<best.grupos.length;gpi++) await exportarGrupo(gpi);
+    // Uma unica chamada: o servidor gera as planilhas de TODAS as partes e devolve
+    // um unico arquivo (.zip se houver mais de uma). Evita o navegador descartar
+    // downloads simultaneos -- antes so a ultima parte baixava.
+    const grupos=best.grupos.map(g=>({tipo:g.tipo,data:g.data}));
+    document.getElementById('es').textContent='Gerando planilhas de todas as partes...';
+    try{
+      const r=await fetch('/exportar_particao',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({grupos:grupos,referencia:'plano_completo'})});
+      const res=await r.json();
+      if(res.nome||res.caminho){
+        const nome=res.nome||res.caminho;
+        const a=document.createElement('a');a.href='/baixar?arquivo='+encodeURIComponent(nome);a.download=nome;a.click();
+        document.getElementById('es').textContent='Baixando: '+nome+' ('+best.grupos.length+' parte(s))';
+      }else{document.getElementById('es').textContent='Erro: '+(res.erro||'?');}
+    }catch(e){document.getElementById('es').textContent='Erro: '+e.message;}
   }else{
     await exportar();
   }
@@ -1650,8 +1787,10 @@ function limpar(){
   if(semCores) semCores.style.display='';
   var alocSt=document.getElementById('aloc-st');
   if(alocSt) alocSt.textContent='';
-  var alocResult=document.getElementById('aloc-result');
-  if(alocResult) alocResult.innerHTML='';
+  // Fecha o painel de resultado da alocacao (id correto: 'aloc-resultado').
+  var alocResult=document.getElementById('aloc-resultado');
+  if(alocResult){ alocResult.innerHTML=''; alocResult.style.display='none'; }
+  window._ultimaAlocacao=null;
 }
 
 async function encerrarSistema() {
@@ -1670,6 +1809,18 @@ async function encerrarSistema() {
 var _rolosPorCor = {};
 var _mapeamentosPendentes = {};
 var _updateDisponivel = null;
+
+// Parse unico de comprimentos de rolo.
+// Regra (padrao BR de fabrica): separador entre rolos = ';' (tolera quebras de linha);
+// a virgula e SEMPRE decimal (49,60 = 49.60), nunca separador de lista.
+// Ex: "49,60; 43; 59; 48,7; 10" -> [49.6, 43, 59, 48.7, 10]
+function _parseRolos(str) {
+  if (str === null || str === undefined) return [];
+  return String(str)
+    .split(/[;\n\r]+/)
+    .map(function(v) { return parseFloat(v.trim().replace(',', '.')); })
+    .filter(function(v) { return !isNaN(v) && v > 0; });
+}
 
 function atualizarCoresAlocacao() {
   var lista = document.getElementById('aloc-cores-lista');
@@ -1736,9 +1887,7 @@ function atualizarCoresAlocacao() {
     inp.value = valAtual;
     inp.style.cssText = 'padding:5px 8px;border:1px solid var(--bd2);border-radius:var(--r);font-size:12px;width:100%';
     inp.addEventListener('input', function() {
-      _rolosPorCor[cor] = this.value.split(';')
-        .map(function(v) { return parseFloat(v.trim().replace(',', '.')); })
-        .filter(function(v) { return v > 0; });
+      _rolosPorCor[cor] = _parseRolos(this.value);
     });
 
     var btn = document.createElement('button');
@@ -1779,9 +1928,7 @@ async function iniciarAlocacao() {
     var cor = row.dataset.cor;
     var inp = row.querySelector('input[type=text]');
     if (inp) {
-      var vals = inp.value.split(',')
-        .map(function(v){ return parseFloat(v.trim()); })
-        .filter(function(v){ return v > 0; });
+      var vals = _parseRolos(inp.value);
       if (vals.length) rolos[cor] = vals;
     }
   });
@@ -1818,37 +1965,60 @@ async function iniciarAlocacao() {
 }
 
 function _montarPlanoParaAlocacao() {
-  if (typeof resultado !== 'undefined' && resultado && resultado.solucoes && resultado.solucoes.length) {
-    var sol = resultado.solucoes[0];
-    var mapas = (sol.mapas || []).map(function(m,i){
-      return {id:i, composicao:m, n_pecas:Object.values(m).reduce(function(a,b){return a+b;},0)};
-    });
-    var camadas = {};
-    Object.keys(sol.folhas || {}).forEach(function(cor){
-      camadas[cor] = {};
-      (sol.folhas[cor] || []).forEach(function(n,i){ camadas[cor][i] = n; });
-    });
-    var cfg = resultado.config || {};
-    return {mapas:mapas, camadas:camadas, consumo_peca: cfg.consumo_peca_m || 1.0645};
+  // Constroi UM plano unico para a alocacao, agregando TODOS os grupos da
+  // particao (single-ref e combinados). Cada mapa recebe comp_camada_m explicito:
+  // - single-ref: n_pecas x consumo da referencia;
+  // - combinado: comprimento do enfesto (soma de pecas x consumo de cada ref).
+  // As camadas (folhas) sao acumuladas por cor real ao longo de todos os grupos.
+  var mapas = [], camadas = {}, mid = 0;
+
+  function addCamada(cor, n) {
+    if (n > 0) { if (!camadas[cor]) camadas[cor] = {}; camadas[cor][mid] = n; }
   }
-  if (window._resultadoMulti) {
-    var grupos = window._resultadoMulti.grupos || [];
-    if (grupos.length) {
-      var g = grupos[0]; var d = g.data;
-      if (d && d.solucoes && d.solucoes.length) {
-        var sol2 = d.solucoes[0];
-        var mapas2 = (sol2.mapas || []).map(function(m,i){
-          return {id:i, composicao:m, n_pecas:Object.values(m).reduce(function(a,b){return a+b;},0)};
-        });
-        var camadas2 = {};
-        Object.keys(sol2.folhas || {}).forEach(function(cor){
-          camadas2[cor] = {};
-          (sol2.folhas[cor] || []).forEach(function(n,i){ camadas2[cor][i] = n; });
-        });
-        var cfg2 = d.config || {};
-        return {mapas:mapas2, camadas:camadas2, consumo_peca: cfg2.consumo_peca_m || 1.0645};
-      }
+  function addGrupoSingle(sol, consumo) {
+    var fl = sol.folhas || {};
+    (sol.mapas || []).forEach(function(m, k) {
+      var np = Object.values(m).reduce(function(a,b){return a+b;}, 0);
+      mapas.push({id:mid, composicao:m, n_pecas:np, comp_camada_m:+(np*consumo).toFixed(4)});
+      Object.keys(fl).forEach(function(cor){ addCamada(cor, (fl[cor]||[])[k]||0); });
+      mid++;
+    });
+  }
+  function addGrupoMulti(sol) {
+    var comps = sol.comprimentos || (sol.resumo && sol.resumo.comprimentos_por_enfesto) || [];
+    var n = (sol.resumo && sol.resumo.n_mapas) || comps.length;
+    var refsSol = sol.refs_sol || [];
+    for (var k = 0; k < n; k++) {
+      var np = 0, compos = {}, fpc = {};
+      refsSol.forEach(function(rs){
+        var m = (rs.mapas || [])[k] || {};
+        Object.keys(m).forEach(function(t){ np += m[t]; compos[t] = (compos[t]||0) + m[t]; });
+        var fl = rs.folhas || {};
+        // Camada fisica e compartilhada entre as refs do enfesto -> usa o maior nº de folhas.
+        Object.keys(fl).forEach(function(cor){ var v=(fl[cor]||[])[k]||0; if(v>(fpc[cor]||0)) fpc[cor]=v; });
+      });
+      mapas.push({id:mid, composicao:compos, n_pecas:np, comp_camada_m:+((comps[k]||0)).toFixed(4)});
+      Object.keys(fpc).forEach(function(cor){ addCamada(cor, fpc[cor]); });
+      mid++;
     }
+  }
+
+  // Multi-ref: agrega todos os grupos do melhor agrupamento.
+  if (window._resultadoMulti && (window._resultadoMulti.grupos || []).length) {
+    window._resultadoMulti.grupos.forEach(function(gp){
+      var sol = (gp.data && gp.data.solucoes || [])[0];
+      if (!sol) return;
+      if (gp.tipo === 'multiref') addGrupoMulti(sol);
+      else addGrupoSingle(sol, (gp.data.config && gp.data.config.consumo_peca_m) || 1.0645);
+    });
+    return mapas.length ? {mapas:mapas, camadas:camadas, consumo_peca:1.0645} : null;
+  }
+
+  // Single-ref.
+  if (typeof resultado !== 'undefined' && resultado && resultado.solucoes && resultado.solucoes.length) {
+    var cons = (resultado.config && resultado.config.consumo_peca_m) || 1.0645;
+    addGrupoSingle(resultado.solucoes[0], cons);
+    return {mapas:mapas, camadas:camadas, consumo_peca:cons};
   }
   return null;
 }

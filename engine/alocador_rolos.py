@@ -142,8 +142,15 @@ def alocar_rolos(plano, rolos, config):
     comp_camada_por_id = {}
     for m in mapas_plano:
         mid    = int(m["id"])
-        n_pecs = int(m.get("n_pecas", sum(m.get("composicao", {}).values())))
-        comp_camada_por_id[mid] = round(n_pecs * consumo_peca, 6)
+        # Comprimento explicito da camada (m) tem prioridade -- necessario para enfesto
+        # combinado multi-ref, onde a camada = soma de pecas x consumo de cada referencia
+        # (consumos diferentes). Sem ele, usa n_pecas x consumo_peca (caso single-ref).
+        comp_m = float(m.get("comp_camada_m", 0) or 0)
+        if comp_m > 0:
+            comp_camada_por_id[mid] = round(comp_m, 6)
+        else:
+            n_pecs = int(m.get("n_pecas", sum(m.get("composicao", {}).values())))
+            comp_camada_por_id[mid] = round(n_pecs * consumo_peca, 6)
 
     resultado_por_cor = {}
     alertas           = []

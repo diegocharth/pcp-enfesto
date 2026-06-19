@@ -55,6 +55,25 @@ def test_trivial_cabe_tudo():
 # 2. Margem por sub-enfesto aplicada corretamente
 # ---------------------------------------------------------------------------
 
+def test_comp_camada_m_explicito_tem_prioridade():
+    """
+    Em enfesto combinado (multi-ref), o comprimento da camada nao e n_pecas x consumo
+    unico -- e a soma de pecas x consumo de cada referencia. O alocador deve usar o
+    comp_camada_m informado por mapa quando presente, ignorando n_pecas x consumo.
+    """
+    plano = {
+        "mapas": [{"id": 0, "composicao": {"PP": 1}, "n_pecas": 1, "comp_camada_m": 8.0}],
+        "camadas": {"SAMBA": {0: 5}},   # 5 camadas de 8.0m = 40.0m
+        "consumo_peca": 1.0,            # n_pecas*consumo daria 1.0m -- NAO deve ser usado
+    }
+    rolos = {"SAMBA": [50.0]}
+    res = alocar_rolos(plano, rolos, CONFIG_BASE)
+    sub = res["por_cor"]["SAMBA"]["rolos"][0]["sub_enfestos"][0]
+    assert sub["comp_camada"] == 8.0
+    # 5 camadas x 8.0 + margem 0.10 = 40.10m
+    assert abs(sub["comp_total"] - 40.10) < 0.001
+
+
 def test_margem_por_sub_enfesto():
     """
     1 rolo, 1 mapa, N camadas.

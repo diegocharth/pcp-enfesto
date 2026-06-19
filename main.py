@@ -1,7 +1,20 @@
 #!/usr/bin/env python3
 """
-PCP Enfestos v2.8.0
+PCP Enfestos v2.10.0
 Changelog:
+  v2.10.0 - Multi-ref MUITO mais rapido (branch-and-bound): calcula individuais
+            primeiro e limita a busca de cada grupo combinado a n_mapas < baseline
+            (combinar so vale se reduzir enfestos). Caso real: 30min -> ~3min, mesma
+            solucao otima. Export "todas as partes" num unico .zip (/exportar_particao)
+            -- antes o navegador descartava downloads simultaneos e so 1 parte baixava.
+            Alocacao de rolos agora abre apos calculo multi-ref e agrega TODOS os grupos
+            (comp_camada_m explicito por mapa para enfestos combinados).
+  v2.9.0 - Multi-ref: corrigido crash do solver combinado (total_pecas somava dict_values).
+           Cache persistente de resultados (recalculo identico instantaneo) + aprendizado
+           de tempos (ETA realista, melhora com o uso). Tetos de tempo adaptativos por
+           complexidade (mantem 240xn como teto so ate aprender). Rota GET /aprendizado.
+           Alocacao de rolos: parse unico de comprimentos (corrige deficit inflado) e
+           reset que fecha o painel (fix no frontend interface.html).
   v2.8.0 - Alocador de rolos (FFD adaptado, margem por sub-enfesto, ponta como estoque).
            Import do controle de rolos do ERP Vexta (PDF) com mapeamento de cor.
            Auto-update via GitHub Releases.
@@ -19,18 +32,20 @@ Changelog:
 
 import json, os, sys, threading, webbrowser, base64, time, signal, subprocess
 import urllib.request
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
-VERSION      = "2.8.4"
+VERSION      = "2.10.0"
 CORES_FILE        = os.path.join(BASE_DIR, "dados", "cores_salvas.json")
 PARAMS_FILE       = os.path.join(BASE_DIR, "dados", "parametros_salvos.json")
 PID_FILE          = os.path.join(BASE_DIR, "dados", "servidor.pid")
 MAPA_CORES_FILE   = os.path.join(BASE_DIR, "dados", "mapa_cores.json")
 HISTORICO_FILE    = os.path.join(BASE_DIR, "dados", "historico_solucoes.json")
+CACHE_FILE        = os.path.join(BASE_DIR, "dados", "cache_planos.json")
+TEMPOS_FILE       = os.path.join(BASE_DIR, "dados", "tempos_aprendidos.json")
 
 # Importações lazy para evitar erro de startup
 def _importar():
@@ -40,7 +55,9 @@ def _importar():
     global obter_fonte_rolos, aplicar_mapa_cores, resolver_cor_fn, adicionar_mapeamento_fn
     global carregar_mapa_cores, salvar_mapa_cores_fn
     global checar_atualizacao_fn, sinalizar_update_fn
+    global CachePlanos, assinatura_calc
     from engine.solver              import resolver
+    from engine.cache_planos        import CachePlanos, assinatura as assinatura_calc
     from engine.tolerancia          import calcular_limites_grade
     from exportar.export_xlsx       import exportar as exportar_xlsx
     from exportar.export_xlsx       import exportar_multiref as exportar_multiref_xlsx
@@ -61,6 +78,20 @@ def _importar():
     from updater import sinalizar_update_pendente as sinalizar_update_fn
 
 _importar()
+
+# Cache persistente de resultados + tempos aprendidos (ETA realista).
+# Recalculo identico -> instantaneo; previsao de tempo melhora com o uso.
+_CACHE = CachePlanos(CACHE_FILE, TEMPOS_FILE)
+
+
+def _bucket_single(grade):
+    """Chave de complexidade para aprender o tempo de um calculo de 1 referencia."""
+    return f"indiv:{len(grade)}c"
+
+
+def _bucket_grupo(n_refs, n_cores):
+    """Chave de complexidade para aprender o tempo de um calculo combinado."""
+    return f"grupo:{n_refs}r:{n_cores}c"
 
 
 def _ensure_dados():
@@ -163,6 +194,12 @@ def remover_pid():
 _progresso_fila = []
 _progresso_lock = threading.Lock()
 
+# Serializa cálculos: o solver usa estado global compartilhado (mapas históricos
+# injetados + atributos de retomada na função resolver). ThreadingHTTPServer atende
+# requisições concorrentes, então sem este lock dois cálculos simultâneos corromperiam
+# o estado um do outro. Mantido durante todo o cálculo (single-user desktop).
+_calc_lock = threading.Lock()
+
 def _add_progresso(msg):
     with _progresso_lock:
         _progresso_fila.append(msg)
@@ -234,6 +271,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"versao": VERSION, "versao_local": VERSION})
         elif path == "/baixar":
             self._baixar_arquivo()
+        elif path == "/aprendizado":
+            # Tempos medianos aprendidos por classe de problema (para a ETA realista).
+            self._send(200, {"tempos": _CACHE.estimativas()})
         else:
             self.send_response(404); self.end_headers()
 
@@ -246,6 +286,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/calcular_grupo":     self._calcular_grupo(json.loads(body))
             elif path == "/exportar":           self._exportar(json.loads(body))
             elif path == "/exportar_multiref":  self._exportar_multiref(json.loads(body))
+            elif path == "/exportar_particao":  self._exportar_particao(json.loads(body))
             elif path == "/salvar_cores":       self._salvar_cores(json.loads(body))
             elif path == "/salvar_params":      self._salvar_params(json.loads(body))
             elif path == "/upload":             self._upload(json.loads(body))
@@ -275,9 +316,11 @@ class Handler(BaseHTTPRequestHandler):
         tamanhos   = p.get("tamanhos", ["PP","P","M","G"])
         grade      = {cor: {t: int(v) for t,v in tms.items()}
                       for cor, tms in p.get("grade", {}).items()}
-        regras     = p.get("regras_especiais", {})
-        referencia = p.get("referencia", "REF")
-        timeout    = int(p.get("timeout", 120))
+        regras      = p.get("regras_especiais", {})
+        referencia  = p.get("referencia", "REF")
+        timeout     = int(p.get("timeout", 120))
+        min_n_mapas = int(p.get("min_n_mapas", 1))
+        skip_combos = int(p.get("skip_combos", 0))
 
         # Salvar parâmetros usados para próxima sessão
         salvar_params({
@@ -303,14 +346,31 @@ class Handler(BaseHTTPRequestHandler):
 
         limites  = calcular_limites_grade(grade, tamanhos, cfg, regras)
 
+        # ── Cache: recalculo identico e instantaneo ──────────────────────────
+        # Assinatura = definicao do problema (sem timeout, que so muda o orcamento
+        # de busca). So usa cache em calculo fresco (nao em retomada via "Continuar").
+        usa_cache = (min_n_mapas == 1 and skip_combos == 0)
+        sig = assinatura_calc({
+            "tipo": "single", "grade": grade, "consumo": cfg["consumo_peca_m"],
+            "mesa": cfg["mesa_comprimento_m"], "max_folhas": cfg["limite_folhas_padrao"],
+            "num_opcoes": cfg["num_opcoes_saida"], "tol_abs": cfg["desvio_absoluto_padrao"],
+            "tol_pct": cfg["desvio_percentual_padrao"], "criterio": cfg["criterio_combinacao"],
+            "peso_enc": cfg["peso_eficiencia_encaixe"], "peso_op": cfg["peso_eficiencia_operacional"],
+            "tamanhos": tamanhos, "regras": regras,
+        })
+        if usa_cache:
+            hit = _CACHE.obter(sig)
+            if hit is not None:
+                self._send(200, {**hit, "referencia": referencia, "cache": True,
+                                 "log": ["Cache: resultado identico reaproveitado (instantaneo)."]})
+                return
+
         # Calcular grade total e fingerprint para o histórico
         grade_total = {t: sum(grade[c].get(t, 0) for c in grade) for t in tamanhos}
         fp = _fingerprint_grade(grade_total, tamanhos)
 
-        # Injetar mapas históricos no início da lista de prioridades
         from engine import mapas as _mapas_mod
         historicos = carregar_historico(fp)
-        _mapas_mod._mapas_historicos_injetar = historicos
 
         with _progresso_lock:
             _progresso_fila.clear()
@@ -320,14 +380,35 @@ class Handler(BaseHTTPRequestHandler):
             logs.append(msg)
             _add_progresso(msg)
 
-        try:
-            solucoes = resolver(grade, tamanhos, limites, cfg,
-                                callback_progresso=cb, timeout_s=timeout)
-        finally:
-            _mapas_mod._mapas_historicos_injetar = []  # sempre limpar após uso
+        # Cálculo sob lock: injeção de históricos + resolver + leitura dos atributos
+        # de retomada formam uma seção crítica (estado global compartilhado).
+        _t0 = time.time()
+        with _calc_lock:
+            _mapas_mod._mapas_historicos_injetar = historicos
+            try:
+                solucoes = resolver(grade, tamanhos, limites, cfg,
+                                    callback_progresso=cb, timeout_s=timeout,
+                                    min_n_mapas=min_n_mapas, skip_combos=skip_combos)
+            finally:
+                _mapas_mod._mapas_historicos_injetar = []  # sempre limpar após uso
+            r_niveis = getattr(resolver, '_niveis_esgotados', [])
+            r_prox   = getattr(resolver, '_proximo_n', 1)
+            r_skip   = getattr(resolver, '_skip_combos', 0)
+        _elapsed = time.time() - _t0
+        # Aprende o tempo real SO de buscas que terminaram (r_skip==0 = nao cortada
+        # por timeout). Tempo de busca cortada enviesaria a mediana para baixo e o
+        # teto adaptativo passaria a cortar buscas boas antes da hora.
+        if usa_cache and r_skip == 0:
+            _CACHE.registrar_tempo(_bucket_single(grade), _elapsed)
 
         if not solucoes:
-            self._send(200, {"erro": "Nenhuma solução encontrada. Tente aumentar tolerância ou timeout."})
+            self._send(200, {
+                "erro": "Nenhuma solução encontrada. Tente aumentar tolerância ou timeout.",
+                "niveis_esgotados": r_niveis,
+                "proximo_n": r_prox,
+                "skip_combos": r_skip,
+                "log": logs,
+            })
             return
 
         # Salvar melhor solução no histórico (aprendizado)
@@ -347,16 +428,20 @@ class Handler(BaseHTTPRequestHandler):
             if hasattr(o, "tolist"): return o.tolist()
             return o
 
-        self._send(200, {
+        resp = {
             "solucoes"  : ser(solucoes),
-            "log"       : logs,
             "tamanhos"  : tamanhos,
             "grade"     : grade,
             "limites"   : {c: {t: list(l) for t,l in ts.items()} for c,ts in limites.items()},
-            "referencia": referencia,
             "config"    : cfg,
             "versao"    : VERSION,
-        })
+        }
+        # Guarda no cache apenas se a busca foi completa (r_skip==0 = nao cortada
+        # por timeout no meio de um nivel). Resultado parcial nunca e cacheado,
+        # para que "Continuar" com mais tempo possa melhora-lo.
+        if usa_cache and r_skip == 0:
+            _CACHE.guardar(sig, resp, _elapsed)
+        self._send(200, {**resp, "referencia": referencia, "log": logs, "tempo_s": round(_elapsed, 2)})
 
     def _exportar(self, p):
         cfg      = p.get("config", carregar_config())
@@ -408,11 +493,12 @@ class Handler(BaseHTTPRequestHandler):
         cfg["peso_eficiencia_encaixe"]     = float(p.get("peso_enc", 6)) / 10.0
         cfg["peso_eficiencia_operacional"] = float(p.get("peso_op", 4)) / 10.0
 
-        tamanhos   = p.get("tamanhos", ["PP","P","M","G"])
-        timeout    = int(p.get("timeout", 120))
-        refs_raw   = p.get("refs", [])
-        referencia = p.get("referencia", "Grupo")
-        regras     = p.get("regras_especiais", {})
+        tamanhos    = p.get("tamanhos", ["PP","P","M","G"])
+        timeout     = int(p.get("timeout", 120))
+        n_mapas_max = int(p.get("n_mapas_max", 7))   # branch-and-bound: teto de enfestos
+        refs_raw    = p.get("refs", [])
+        referencia  = p.get("referencia", "Grupo")
+        regras      = p.get("regras_especiais", {})
 
         # Calcula limites para cada ref com seu próprio consumo
         refs_data = []
@@ -434,6 +520,23 @@ class Handler(BaseHTTPRequestHandler):
         todas_cores = list({c for r in refs_data for c in r["grade"]})
         salvar_cores_arquivo(todas_cores + carregar_cores_salvas())
 
+        # ── Cache: agrupamento identico e instantaneo ───────────────────────
+        sig = assinatura_calc({
+            "tipo": "multiref",
+            "refs": [{"grade": r["grade"], "consumo": r["consumo"]} for r in refs_data],
+            "mesa": cfg["mesa_comprimento_m"], "max_folhas": cfg["limite_folhas_padrao"],
+            "num_opcoes": cfg["num_opcoes_saida"], "tol_abs": cfg["desvio_absoluto_padrao"],
+            "tol_pct": cfg["desvio_percentual_padrao"], "criterio": cfg["criterio_combinacao"],
+            "peso_enc": cfg["peso_eficiencia_encaixe"], "peso_op": cfg["peso_eficiencia_operacional"],
+            "tamanhos": tamanhos, "regras": regras, "n_mapas_max": n_mapas_max,
+        })
+        hit = _CACHE.obter(sig)
+        if hit is not None:
+            self._send(200, {**hit, "referencia": referencia, "cache": True,
+                             "log": ["Cache: agrupamento identico reaproveitado (instantaneo)."]})
+            return
+        n_cores = sum(len(r["grade"]) for r in refs_data)
+
         with _progresso_lock:
             _progresso_fila.clear()
 
@@ -442,11 +545,23 @@ class Handler(BaseHTTPRequestHandler):
             logs.append(msg)
             _add_progresso(msg)
 
-        solucoes = resolver_multiref(refs_data, tamanhos, cfg,
-                                     callback=cb, timeout_s=timeout)
+        # Mesmo lock do cálculo single-ref: serializa para não interleavar progresso
+        # nem competir pelo estado global compartilhado do solver.
+        _t0 = time.time()
+        with _calc_lock:
+            solucoes = resolver_multiref(refs_data, tamanhos, cfg,
+                                         callback=cb, timeout_s=timeout,
+                                         n_mapas_max=n_mapas_max)
+            # Sinal exato do solver: a busca convergiu ou foi cortada pelo timeout?
+            # (mesma estrategia do single-ref, que usa r_skip==0 -- evita vies na ETA)
+            _convergiu = getattr(resolver_multiref, '_convergiu', True)
+        _elapsed = time.time() - _t0
+        if _convergiu:
+            _CACHE.registrar_tempo(_bucket_grupo(len(refs_data), n_cores), _elapsed)
 
         if not solucoes:
-            self._send(200, {"erro": "Nenhuma solução combinada encontrada. Tente aumentar timeout ou tolerância."})
+            self._send(200, {"erro": "Nenhuma solução combinada encontrada. Tente aumentar timeout ou tolerância.",
+                             "tempo_s": round(_elapsed, 2)})
             return
 
         def ser(o):
@@ -455,15 +570,69 @@ class Handler(BaseHTTPRequestHandler):
             if hasattr(o, "tolist"): return o.tolist()
             return o
 
-        self._send(200, {
+        resp = {
             "tipo"      : "multiref",
             "solucoes"  : ser(solucoes),
             "tamanhos"  : tamanhos,
-            "referencia": referencia,
             "config"    : cfg,
             "versao"    : VERSION,
-            "log"       : logs,
-        })
+        }
+        # Cacheia apenas quando convergiu antes do teto de tempo. Se usou quase
+        # todo o orcamento, a busca pode ter sido cortada -> nao congela parcial.
+        if _convergiu:
+            _CACHE.guardar(sig, resp, _elapsed)
+        self._send(200, {**resp, "referencia": referencia, "log": logs, "tempo_s": round(_elapsed, 2)})
+
+    def _exportar_particao(self, p):
+        """Exporta TODAS as partes do melhor agrupamento num unico .zip.
+
+        Evita o problema do navegador descartar downloads simultaneos: gera uma
+        planilha por grupo (single ou combinado) e empacota tudo em um zip so.
+        """
+        import zipfile
+        grupos     = p.get("grupos", [])
+        referencia = p.get("referencia", "plano_completo")
+        pasta      = os.path.join(BASE_DIR, "dados", "resultados")
+        os.makedirs(pasta, exist_ok=True)
+
+        arquivos = []
+        for g in grupos:
+            data = g.get("data", {})
+            cfg  = data.get("config", carregar_config())
+            sols = data.get("solucoes", [])
+            tams = data.get("tamanhos", [])
+            ref  = data.get("referencia", referencia)
+            if not sols:
+                continue
+            if g.get("tipo") == "multiref":
+                arquivos.append(exportar_multiref_xlsx(sols, tams, ref, cfg, pasta))
+            else:
+                grade    = data.get("grade", {})
+                lims_raw = data.get("limites", {})
+                limites  = {c: {t: tuple(l) for t, l in ts.items()} for c, ts in lims_raw.items()}
+                consumo  = float(cfg.get("consumo_peca_m", 1.0645))
+                for s in sols:
+                    s["consumo"] = consumo
+                arquivos.append(exportar_xlsx(sols, grade, tams, limites, cfg, ref, pasta))
+
+        if not arquivos:
+            self._send(200, {"erro": "Nenhuma parte para exportar."})
+            return
+
+        # Uma unica parte -> devolve o proprio xlsx (sem zipar).
+        if len(arquivos) == 1:
+            _copiar_para_downloads(arquivos[0])
+            self._send(200, {"caminho": arquivos[0], "nome": os.path.basename(arquivos[0])})
+            return
+
+        ts       = time.strftime("%Y%m%d_%H%M%S")
+        zip_nome = f"plano_completo_{referencia.replace(' ', '_').replace('/', '-')[:40]}_{ts}.zip"
+        zip_cam  = os.path.join(pasta, zip_nome)
+        with zipfile.ZipFile(zip_cam, "w", zipfile.ZIP_DEFLATED) as z:
+            for a in arquivos:
+                z.write(a, os.path.basename(a))
+        _copiar_para_downloads(zip_cam)
+        self._send(200, {"caminho": zip_cam, "nome": zip_nome})
 
     def _exportar_multiref(self, p):
         """Exporta resultado multi-ref combinado para Excel."""
@@ -663,7 +832,7 @@ def main():
     _ensure_dados()
     porta = 5050
     try:
-        servidor = HTTPServer(("localhost", porta), Handler)
+        servidor = ThreadingHTTPServer(("localhost", porta), Handler)
     except OSError:
         if _servidor_respondendo(porta):
             # Servidor ativo — apenas abrir o browser
@@ -673,7 +842,7 @@ def main():
             _matar_zumbi_porta(porta)
             time.sleep(1)
             try:
-                servidor = HTTPServer(("localhost", porta), Handler)
+                servidor = ThreadingHTTPServer(("localhost", porta), Handler)
             except OSError:
                 # Ainda em uso — abrir browser e sair
                 webbrowser.open(f"http://localhost:{porta}")

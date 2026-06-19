@@ -49,9 +49,10 @@ pcp_enfestos/
 ├── config.json                ← parâmetros padrão persistentes
 ├── engine/
 │   ├── solver.py              ← algoritmo de busca — NÃO MODIFICAR
-│   ├── solver_multiref.py     ← solver multi-referência — NÃO MODIFICAR
+│   ├── solver_multiref.py     ← solver multi-referência (v2.9: fix crash; v2.10: n_mapas_max p/ branch-and-bound)
 │   ├── tolerancia.py          ← regras de desvio permitido por tamanho
 │   ├── mapas.py               ← gerador de composições de encaixe
+│   ├── cache_planos.py        ← cache persistente de resultados + tempos aprendidos (ETA)
 │   ├── alocador_rolos.py      ← motor FFD de alocação de rolos
 │   └── import_rolos/
 │       ├── base.py            ← classe abstrata FonteRolos
@@ -153,10 +154,12 @@ O `interface.html` já foi corrompido antes por `Set-Content -Encoding utf8` do 
 | GET | `/encerrar` | Encerra o servidor |
 | GET | `/mapa_cores` | Mapeamento cor-fornecedor → cor-comercial |
 | GET | `/checar_update` | Consulta GitHub Releases por nova versão |
+| GET | `/aprendizado` | Tempos medianos aprendidos por classe de problema (alimenta a ETA realista) |
 | POST | `/calcular` | Executa solver single-ref |
 | POST | `/calcular_grupo` | Executa solver multi-ref |
 | POST | `/exportar` | Gera .xlsx do resultado do solver |
 | POST | `/exportar_multiref` | Gera .xlsx do resultado multi-ref |
+| POST | `/exportar_particao` | Gera as planilhas de TODAS as partes do agrupamento num único .zip |
 | POST | `/salvar_cores` | Persiste cadastro de cores |
 | POST | `/salvar_params` | Persiste parâmetros da UI |
 | POST | `/upload` | Parse de .xlsx/.csv de ordem de produção |

@@ -16,7 +16,7 @@
     "G": 1.5
   },
   "anthropic_api_key": "",
-  "versao": "2.3.0",
+  "versao": "2.9.0",
   "margem_seguranca_enfesto_m": 0.10,
   "folga_incerteza_pct": 0.03,
   "folga_incerteza_m": 0.0,

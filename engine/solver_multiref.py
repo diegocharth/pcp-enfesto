@@ -11,7 +11,7 @@ from engine.mapas   import gerar_mapas, filtrar_mapas_relevantes, priorizar_mapa
 from engine.solver  import _resolver_folhas_cor
 
 
-def resolver_multiref(refs_data, tamanhos, config, callback=None, timeout_s=120):
+def resolver_multiref(refs_data, tamanhos, config, callback=None, timeout_s=120, n_mapas_max=7):
     """
     refs_data: list of {
         nome:    str,
@@ -19,6 +19,10 @@ def resolver_multiref(refs_data, tamanhos, config, callback=None, timeout_s=120)
         consumo: float,
         limites: {cor: {tam: (lo, hi)}}
     }
+    n_mapas_max: limite superior de enfestos a buscar (branch-and-bound). Combinar
+        refs so compensa se usar MENOS enfestos que mante-las separadas; o
+        orquestrador passa (baseline_do_grupo - 1) para nunca gastar tempo com
+        combinacoes profundas que ja seriam descartadas. n_mapas_max < 1 -> vazio.
     Retorna lista de soluções ordenadas por (n_mapas, desvio_total).
     Cada solução: {n_mapas, refs_sol, comprimentos, desvio_total, resumo}
     """
@@ -27,12 +31,19 @@ def resolver_multiref(refs_data, tamanhos, config, callback=None, timeout_s=120)
     num_opcoes = int(config.get("num_opcoes_saida", 2))
     N          = len(refs_data)
     t0         = time.time()
+    n_teto     = min(7, int(n_mapas_max))  # teto efetivo de enfestos a explorar
 
     def log(msg):
         if callback:
             callback(msg)
 
-    log(f"Multi-ref combinado: {N} refs | Mesa: {mesa}m | Timeout: {timeout_s}s")
+    resolver_multiref._convergiu = True  # default; vira False so se cortar por timeout
+
+    if n_teto < 1:
+        log("Combinar este grupo nao reduz enfestos (limite < 1). Pulando.")
+        return []
+
+    log(f"Multi-ref combinado: {N} refs | Mesa: {mesa}m | Timeout: {timeout_s}s | ate {n_teto} enfesto(s)")
 
     # ── Gera mapas candidatos por referência ──────────────────────────────────
     K_por_ref = max(10, {2: 35, 3: 22, 4: 12}.get(N, 10))
@@ -54,6 +65,20 @@ def resolver_multiref(refs_data, tamanhos, config, callback=None, timeout_s=120)
             prior = [{}]
         mapas_por_ref.append(prior)
         log(f"  {ref.get('nome','Ref '+str(ri+1))}: {len(prior)} mapas candidatos (cons={consumo}m, max={max_p}pcs)")
+
+    # ── Diagnóstico: mínimo de peças por ref ─────────────────────────────────
+    for j, prior in enumerate(mapas_por_ref):
+        min_p = min(sum(m.values()) for m in prior) if prior else 0
+        max_p_pool = max(sum(m.values()) for m in prior) if prior else 0
+        cons_j = float(refs_data[j].get("consumo", 1.0645))
+        log(f"  Pool ref {j} ({refs_data[j].get('nome','?')}): "
+            f"peças=[{min_p},{max_p_pool}], "
+            f"len=[{min_p*cons_j:.2f},{max_p_pool*cons_j:.2f}]m")
+    min_comb = sum(
+        min(sum(m.values()) for m in prior) * float(refs_data[j].get("consumo", 1.0645))
+        for j, prior in enumerate(mapas_por_ref)
+    ) if mapas_por_ref else 0
+    log(f"  Menor comprimento combinado possível: {min_comb:.2f}m (mesa={mesa}m)")
 
     # ── Gera composições combinadas válidas ───────────────────────────────────
     log("Gerando composições combinadas válidas...")
@@ -80,12 +105,14 @@ def resolver_multiref(refs_data, tamanhos, config, callback=None, timeout_s=120)
 
     # ── Busca por n_mapas crescente ───────────────────────────────────────────
     melhores         = []
-    budget_por_nivel = max(15, timeout_s // 4)
+    budget_por_nivel = max(10, timeout_s // 6)
     primeiro_n       = 0
+    cortado_timeout  = False   # True se a busca foi interrompida pelo teto de tempo
 
-    for n_mapas in range(1, 8):
+    for n_mapas in range(1, n_teto + 1):
         if time.time() - t0 > timeout_s:
             log(f"Timeout ({timeout_s}s) — usando melhor resultado encontrado")
+            cortado_timeout = True
             break
 
         log(f"\nTestando {n_mapas} enfesto(s) combinado(s)...")
@@ -99,6 +126,7 @@ def resolver_multiref(refs_data, tamanhos, config, callback=None, timeout_s=120)
 
         for combo in combinations(pool, n_mapas):
             if time.time() - t0 > timeout_s:
+                cortado_timeout = True
                 break
             if not melhores and time.time() - t_nivel > budget_por_nivel:
                 log(f"  Sem solução em {int(time.time()-t_nivel)}s — tentando {n_mapas+1}...")
@@ -158,7 +186,7 @@ def resolver_multiref(refs_data, tamanhos, config, callback=None, timeout_s=120)
                 ), 4)
                 for k in range(n_mapas)
             ]
-            total_pecas  = sum(sum(combo[k][j].values() for j in range(N)) for k in range(n_mapas))
+            total_pecas  = sum(sum(combo[k][j].values()) for j in range(N) for k in range(n_mapas))
             total_folhas = sum(
                 folhas_por_ref[ri][cor][k]
                 for ri in range(N)
@@ -210,6 +238,11 @@ def resolver_multiref(refs_data, tamanhos, config, callback=None, timeout_s=120)
             if n_ok >= num_opcoes and n_mapas >= primeiro_n + 1:
                 log(f"\nOK {num_opcoes} opções com {primeiro_n} enfesto(s) combinado(s). Parando.")
                 break
+
+    # Sinaliza ao chamador se a busca convergiu (nao foi cortada pelo timeout).
+    # Mesmo padrao do solver.py -- usado por main.py para so cachear/aprender
+    # tempos de buscas COMPLETAS (evita vies na ETA).
+    resolver_multiref._convergiu = not cortado_timeout
 
     if not melhores:
         return []
