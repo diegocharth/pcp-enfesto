@@ -2198,6 +2198,43 @@ function _sugestoesAlocacao(data) {
   return html;
 }
 
+function _htmlCorteSeparado(cr) {
+  var sugs = cr.sugestoes_corte_separado || [];
+  if (!sugs.length) return '';
+  var h = '<div style="margin-top:6px;background:var(--okb);border:1px solid var(--ok);border-radius:var(--r);padding:6px;font-size:12px">';
+  h += '<b style="color:var(--ok)">Corte separado sugerido (usa as pontas):</b>';
+  sugs.forEach(function(s) {
+    var compos = Object.keys(s.composicao||{}).map(function(t){ return s.composicao[t]+t; }).join('+');
+    h += '<div style="padding:3px 0">';
+    h += 'Mapa ' + s.mapa_id + ' (' + s.rotulo + ': ' + compos + ', ' + s.comp_camada + 'm): ';
+    h += (s.cortes||[]).map(function(c){
+      return c.n_camadas + ' camada(s) na ponta do rolo ' + (c.rolo_origem_indice+1) +
+             ' (' + c.ponta_usada_m + 'm)';
+    }).join('; ');
+    if (s.deficit_residual_camadas > 0) {
+      h += ' &mdash; ainda faltam ' + s.deficit_residual_camadas + ' camada(s).';
+    }
+    h += '</div>';
+  });
+  h += '</div>';
+  return h;
+}
+
+function _htmlSobrasPorRolo(cr) {
+  var sob = cr.sobras_por_rolo || [];
+  if (!sob.length) return '';
+  var h = '<div style="margin-top:6px;font-size:11px"><b>Sobras por rolo:</b>';
+  h += '<table style="width:100%;border-collapse:collapse;margin-top:3px">';
+  h += '<tr style="color:var(--tx2)"><td>Rolo</td><td>Usado</td><td>Ponta</td><td>Classe</td></tr>';
+  sob.forEach(function(s) {
+    var cor = s.ponta_classe === 'estoque' ? 'var(--ok)' : 'var(--er)';
+    h += '<tr><td>' + s.rolo_indice + '</td><td>' + s.usado_m + 'm</td>'
+       + '<td style="color:' + cor + '">' + s.ponta_m + 'm</td><td>' + s.ponta_classe + '</td></tr>';
+  });
+  h += '</table></div>';
+  return h;
+}
+
 function _renderResultadoAlocacao(data) {
   var div = document.getElementById('aloc-resultado');
   var res  = data.resumo_geral || {};
@@ -2251,6 +2288,8 @@ function _renderResultadoAlocacao(data) {
       });
       html += 'Comprar aprox. '+(cr.tecido_a_comprar_m||0)+'m</div>';
     }
+    html += _htmlCorteSeparado(cr);
+    html += _htmlSobrasPorRolo(cr);
     html += '</div></details>';
   });
 
