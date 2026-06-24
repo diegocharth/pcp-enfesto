@@ -1885,6 +1885,61 @@ function _parseRolos(str) {
     .filter(function(v) { return !isNaN(v) && v > 0; });
 }
 
+// -- B1: celulas numericas de rolo. _rolosPorCor[cor] = number[] e a fonte unica. --
+function _novaCelulaRolo(cor, valor) {
+  var c = document.createElement('input');
+  c.type = 'text';
+  c.inputMode = 'decimal';
+  c.className = 'aloc-cel';
+  c.dataset.cor = cor;
+  c.style.cssText = 'width:64px;padding:5px 6px;border:1px solid var(--bd2);border-radius:var(--r);font-size:12px;text-align:right';
+  if (valor !== undefined && valor !== null) c.value = String(valor).replace('.', ',');
+  c.addEventListener('input', _onCelulaRoloInput);
+  c.addEventListener('paste', _onCelulaRoloPaste);
+  return c;
+}
+
+function _lerCelulasCor(cellsEl) {
+  var out = [];
+  if (!cellsEl) return out;
+  cellsEl.querySelectorAll('.aloc-cel').forEach(function(c) {
+    var v = parseFloat(String(c.value).trim().replace(',', '.'));
+    if (!isNaN(v) && v > 0) out.push(v);   // compacta: ignora vazias/invalidas
+  });
+  return out;
+}
+
+function _onCelulaRoloInput(e) {
+  var c = e.target;
+  var cells = c.parentNode;          // div.aloc-cels
+  var cor = c.dataset.cor;
+  _rolosPorCor[cor] = _lerCelulasCor(cells);
+  var todas = cells.querySelectorAll('.aloc-cel');
+  if (c === todas[todas.length - 1] && String(c.value).trim() !== '') {
+    cells.appendChild(_novaCelulaRolo(cor));
+  }
+}
+
+function _onCelulaRoloPaste(e) {
+  var texto = (e.clipboardData || window.clipboardData).getData('text');
+  var vals = _parseRolos(texto);
+  if (vals.length <= 1) return;        // 1 valor: deixa o paste normal da celula
+  e.preventDefault();
+  var c = e.target;
+  var cells = c.parentNode;
+  var cor = c.dataset.cor;
+  var inputs = Array.prototype.slice.call(cells.querySelectorAll('.aloc-cel'));
+  var idx = inputs.indexOf(c);
+  vals.forEach(function(v, k) {
+    var alvo = inputs[idx + k];
+    if (!alvo) { alvo = _novaCelulaRolo(cor); cells.appendChild(alvo); inputs.push(alvo); }
+    alvo.value = String(v).replace('.', ',');
+  });
+  _rolosPorCor[cor] = _lerCelulasCor(cells);
+  var todas = cells.querySelectorAll('.aloc-cel');
+  if (String(todas[todas.length - 1].value).trim() !== '') cells.appendChild(_novaCelulaRolo(cor));
+}
+
 function atualizarCoresAlocacao() {
   var lista = document.getElementById('aloc-cores-lista');
   var semCores = document.getElementById('aloc-sem-cores');
@@ -1923,48 +1978,57 @@ function atualizarCoresAlocacao() {
 
   semCores.style.display = 'none';
 
-  // Salvar valores atuais antes de reconstruir
-  var valoresSalvos = {};
-  lista.querySelectorAll('[data-cor]').forEach(function(el) {
-    var inp = el.querySelector('input');
-    if (inp && inp.value.trim()) valoresSalvos[el.dataset.cor] = inp.value;
-  });
-
   lista.innerHTML = '';
 
   coresDisponiveis.forEach(function(cor) {
-    var valAtual = valoresSalvos[cor]
-      || ((_rolosPorCor[cor] || []).length ? (_rolosPorCor[cor]).join('; ') : '');
+    var arr = _rolosPorCor[cor] || [];
 
     var row = document.createElement('div');
     row.dataset.cor = cor;
-    row.style.cssText = 'display:grid;grid-template-columns:140px 1fr auto;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--bd1)';
+    row.style.cssText = 'display:grid;grid-template-columns:140px 1fr auto;align-items:start;gap:8px;padding:4px 0;border-bottom:1px solid var(--bd1)';
 
     var lbl = document.createElement('span');
     lbl.textContent = cor;
-    lbl.style.cssText = 'font-weight:600;font-size:12px;color:var(--tx)';
+    lbl.style.cssText = 'font-weight:600;font-size:12px;color:var(--tx);padding-top:6px';
 
-    var inp = document.createElement('input');
-    inp.type = 'text';
-    inp.placeholder = 'comprimentos (separe por ;), ex: 87,5; 142; 60';
-    inp.value = valAtual;
-    inp.style.cssText = 'padding:5px 8px;border:1px solid var(--bd2);border-radius:var(--r);font-size:12px;width:100%';
-    inp.addEventListener('input', function() {
-      _rolosPorCor[cor] = _parseRolos(this.value);
+    var cells = document.createElement('div');
+    cells.className = 'aloc-cels';
+    cells.dataset.cor = cor;
+    cells.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px';
+    var n = Math.max(8, arr.length + 1);
+    for (var i = 0; i < n; i++) cells.appendChild(_novaCelulaRolo(cor, arr[i]));
+
+    var acoes = document.createElement('div');
+    acoes.style.cssText = 'display:flex;gap:4px;flex-shrink:0';
+
+    var add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'btn btn-s btn-sm';
+    add.textContent = '+';
+    add.title = 'Adicionar celula';
+    add.style.cssText = 'padding:3px 8px';
+    add.addEventListener('click', function() {
+      var nova = _novaCelulaRolo(cor);
+      cells.appendChild(nova);
+      nova.focus();
     });
 
     var btn = document.createElement('button');
+    btn.type = 'button';
     btn.className = 'btn btn-s btn-sm';
-    btn.textContent = '×';
-    btn.style.cssText = 'padding:3px 8px;flex-shrink:0';
+    btn.textContent = 'x';
+    btn.title = 'Remover cor';
+    btn.style.cssText = 'padding:3px 8px';
     btn.addEventListener('click', function() {
       delete _rolosPorCor[cor];
       row.remove();
     });
 
+    acoes.appendChild(add);
+    acoes.appendChild(btn);
     row.appendChild(lbl);
-    row.appendChild(inp);
-    row.appendChild(btn);
+    row.appendChild(cells);
+    row.appendChild(acoes);
     lista.appendChild(row);
   });
 }
@@ -1984,19 +2048,10 @@ async function iniciarAlocacao() {
   st.textContent = 'Alocando...';
   resDiv.style.display = 'none';
 
-  var listaEl = document.getElementById('aloc-cores-lista');
-  var rows = listaEl ? listaEl.querySelectorAll('[data-cor]') : [];
   var rolos = {};
-  rows.forEach(function(row) {
-    var cor = row.dataset.cor;
-    var inp = row.querySelector('input[type=text]');
-    if (inp) {
-      var vals = _parseRolos(inp.value);
-      if (vals.length) rolos[cor] = vals;
-    }
-  });
-  Object.keys(_rolosPorCor).forEach(function(k){
-    if (!rolos[k] && _rolosPorCor[k].length) rolos[k] = _rolosPorCor[k];
+  Object.keys(_rolosPorCor).forEach(function(cor) {
+    var vals = (_rolosPorCor[cor] || []).filter(function(n) { return n > 0; });
+    if (vals.length) rolos[cor] = vals;
   });
 
   if (!Object.keys(rolos).length) { st.textContent = 'Informe os rolos por cor antes de alocar.'; return; }
