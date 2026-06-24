@@ -508,20 +508,30 @@ function toggleTam(t) {
 function renderTol() {
   document.getElementById('tol-body').innerHTML = tamanhos.map(t =>
     `<tr><td><b>${t}</b></td>
-     <td><input type="number" id="tlo_${t}" placeholder="(auto)" style="width:58px"></td>
-     <td><input type="number" id="thi_${t}" placeholder="(auto)" value="${t==='G'?0:''}" style="width:58px"></td>
+     <td><input type="text" id="tlo_${t}" placeholder="(auto)" style="width:72px"></td>
+     <td><input type="text" id="thi_${t}" placeholder="4 ou 10%" value="${t==='G'?0:''}" style="width:72px"></td>
      <td><input type="checkbox" id="tat_${t}" ${t==='G'?'checked':''}></td></tr>`
   ).join('');
 }
 function lerRegras() {
   const r={};
+  const parseLim=(raw)=>{
+    const s=(raw||'').trim();
+    if(s==='') return undefined;
+    if(s.endsWith('%')){
+      const m=parseFloat(s.slice(0,-1).trim().replace(',','.'));
+      return isNaN(m) ? undefined : (Math.abs(m)+'%');  // percentual sempre magnitude
+    }
+    const n=parseInt(s,10);                              // absoluto: preserva sinal (-4)
+    return isNaN(n) ? undefined : n;
+  };
   tamanhos.forEach(t=>{
     if(document.getElementById(`tat_${t}`)?.checked){
-      const lo=document.getElementById(`tlo_${t}`)?.value;
-      const hi=document.getElementById(`thi_${t}`)?.value;
       const o={};
-      if(lo!=='') o.lo=parseInt(lo);
-      if(hi!=='') o.hi=parseInt(hi);
+      const vlo=parseLim(document.getElementById(`tlo_${t}`)?.value);
+      const vhi=parseLim(document.getElementById(`thi_${t}`)?.value);
+      if(vlo!==undefined) o.lo=vlo;
+      if(vhi!==undefined) o.hi=vhi;
       if(Object.keys(o).length) r[t]=o;
     }
   });
