@@ -303,6 +303,9 @@ input:focus,select:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 2p
   <div class="pb-l" id="pbl" style="max-height:80px"></div>
 </div>
 
+<div id="rb-stale" style="display:none;background:var(--wnb,#fff8e1);border:1px solid var(--wn,#e0b000);border-radius:var(--r);padding:10px 14px;margin-bottom:10px;color:var(--wn,#8a6d00);font-size:13px">
+  &#9888; Um parametro mudou. Recalcule o plano para atualizar o resultado.
+</div>
 <div class="rb" id="rb">
   <div class="ct" style="font-size:14px;margin-bottom:9px">✅ Plano de Corte Calculado</div>
   <div class="otabs" id="otabs"></div>
@@ -360,6 +363,9 @@ input:focus,select:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 2p
   </div>
 
   <!-- Resultado da alocacao -->
+  <div id="aloc-stale" style="display:none;margin-top:10px;background:var(--wnb,#fff8e1);border:1px solid var(--wn,#e0b000);border-radius:var(--r);padding:8px 12px;color:var(--wn,#8a6d00);font-size:12px">
+    &#9888; Um parametro mudou. Refaca a alocacao para atualizar.
+  </div>
   <div id="aloc-resultado" style="display:none;margin-top:12px"></div>
 </div>
 
@@ -1323,6 +1329,7 @@ function _setEtapa(id, texto, status) {
 // ── Renderizar resultado ──────────────────────────────────────────────────────
 function renderResultado(data){
   document.getElementById('rb').style.display='block';
+  _clearStaleCalculo();
   const sols=data.solucoes;
   document.getElementById('otabs').innerHTML=sols.map((s,i)=>
     `<div class="otab ${i===0?'at':''}" onclick="atOpt(${i})" id="ot_${i}">
@@ -1370,6 +1377,7 @@ function renderResultadoComComparacao(dadoCombinado, dadosSep, totalSep){
   window._resultadoMulti = dadosSep;
   window._dadoCombinado  = dadoCombinado;
   document.getElementById('rb').style.display='block';
+  _clearStaleCalculo();
 
   const nc    = dadoCombinado ? dadoCombinado.solucoes[0].resumo.n_mapas : null;
   const combOK= nc !== null;
@@ -1516,6 +1524,7 @@ function renderResultadoGrupos(validos){
   document.getElementById('otabs').innerHTML='';
   document.getElementById('ocont').innerHTML=html;
   document.getElementById('rb').style.display='block';
+  _clearStaleCalculo();
 }
 
 async function exportarGrupo(gpi){
@@ -1768,6 +1777,46 @@ async function exportar(data){
     }else{document.getElementById('es').textContent='Erro: '+(res.erro||'?');}
   }catch(e){document.getElementById('es').textContent='Erro: '+e.message;}
 }
+// -- A2: invalidar resultado ao mudar parametro --
+function _clearStaleCalculo(){ var b=document.getElementById('rb-stale'); if(b) b.style.display='none'; }
+function _clearStaleAlocacao(){ var b=document.getElementById('aloc-stale'); if(b) b.style.display='none'; }
+
+function _esconderResultadoPlano(){
+  var rb=document.getElementById('rb');
+  if(rb && rb.style.display!=='none'){ rb.style.display='none';
+    var s=document.getElementById('rb-stale'); if(s) s.style.display='block'; }
+  _esconderResultadoAlocacao(); // plano mudou -> alocacao tambem fica obsoleta
+}
+function _esconderResultadoAlocacao(){
+  var ar=document.getElementById('aloc-resultado');
+  if(ar && ar.style.display!=='none'){ ar.style.display='none';
+    var s=document.getElementById('aloc-stale'); if(s) s.style.display='block'; }
+}
+
+var _CALC_PARAM_IDS = ['mesa','max_folhas','num_opcoes','tol_abs','tol_pct','criterio','timeout'];
+var _ALOC_PARAM_IDS = ['aloc-margem','aloc-folga','aloc-ponta-min'];
+
+function _onParamChange(e){
+  var t=e.target; if(!t) return;
+  var id=t.id||'';
+  if(_ALOC_PARAM_IDS.indexOf(id)>=0 || (t.closest && t.closest('#aloc-cores-lista'))){
+    _esconderResultadoAlocacao(); return;
+  }
+  if(_CALC_PARAM_IDS.indexOf(id)>=0
+     || /^t(lo|hi|at)_/.test(id)
+     || (t.closest && (t.closest('#tol-body') || t.closest('#ref-body')))){
+    _esconderResultadoPlano();
+  }
+}
+function _onToggleChange(){ _esconderResultadoPlano(); }
+
+document.addEventListener('input',  _onParamChange);
+document.addEventListener('change', _onParamChange);
+(function(){
+  var cg=document.getElementById('cores-grid');   if(cg) cg.addEventListener('click', _onToggleChange);
+  var tb=document.getElementById('tam-btns');     if(tb) tb.addEventListener('click', _onToggleChange);
+})();
+
 function limpar(){
   cores=[...cadastroCores]; refs=[]; pid=1;
   document.getElementById('ref-body').innerHTML='';
@@ -1960,6 +2009,7 @@ async function iniciarAlocacao() {
     st.textContent = 'Alocacao concluida.';
     _renderResultadoAlocacao(data);
     resDiv.style.display = '';
+    _clearStaleAlocacao();
     window._ultimaAlocacao = {data: data, plano: plano, rolos: rolos, referencia: _getReferencia()};
   } catch(e) { st.textContent = 'Erro: ' + e.message; }
 }
