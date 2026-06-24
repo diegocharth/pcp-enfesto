@@ -1538,7 +1538,8 @@ async function exportarGrupo(gpi){
 async function exportarMultiref(data){
   document.getElementById('es').textContent='Gerando...';
   try{
-    const r=await fetch('/exportar_multiref',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    var _tmo=parseInt((document.getElementById('timeout')||{}).value);
+    const r=await fetch('/exportar_multiref',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({}, data, {timeout: isNaN(_tmo)?null:_tmo}))});
     const res=await r.json();
     if(res.nome||res.caminho){
       const nome=res.nome||res.caminho;
@@ -1557,8 +1558,10 @@ async function exportarTodos(){
     const grupos=best.grupos.map(g=>({tipo:g.tipo,data:g.data}));
     document.getElementById('es').textContent='Gerando planilhas de todas as partes...';
     try{
+      var _tmo=parseInt((document.getElementById('timeout')||{}).value);
+      var _grupos=grupos.map(function(g){ return {tipo:g.tipo, data:Object.assign({}, g.data, {timeout: isNaN(_tmo)?null:_tmo})}; });
       const r=await fetch('/exportar_particao',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({grupos:grupos,referencia:'plano_completo'})});
+        body:JSON.stringify({grupos:_grupos,referencia:'plano_completo'})});
       const res=await r.json();
       if(res.nome||res.caminho){
         const nome=res.nome||res.caminho;
@@ -1768,7 +1771,8 @@ async function exportar(data){
   if(!d) return;
   document.getElementById('es').textContent='Gerando...';
   try{
-    const r=await fetch('/exportar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});
+    var _tmo=parseInt((document.getElementById('timeout')||{}).value);
+    const r=await fetch('/exportar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({}, d, {timeout: isNaN(_tmo)?null:_tmo}))});
     const res=await r.json();
     if(res.nome||res.caminho){
       const nome=res.nome||res.caminho;
