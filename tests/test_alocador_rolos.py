@@ -365,3 +365,24 @@ def test_resultado_inclui_bloco_params():
     assert p["folga_incerteza_pct"] == 0.03
     assert p["folga_incerteza_m"] == 0.0
     assert p["ponta_minima_util_m"] == 0.5
+
+
+def test_alocacao_anexa_sugestoes_corte_separado():
+    plano = {
+        "mapas": [{"id": 0, "n_pecas": 6, "composicao": {"P": 3, "M": 3}}],
+        "camadas": {"AZUL": {0: 5}},
+        "consumo_peca": 1.3,
+    }
+    cfg = dict(CONFIG_BASE)
+    cfg["folga_incerteza_pct"] = 0.03
+    res = alocar_rolos(plano, {"AZUL": [30.0]}, cfg)
+    cr = res["por_cor"]["AZUL"]
+    assert "sugestoes_corte_separado" in cr
+    assert "sugestoes_corte_total" in res["resumo_geral"]
+
+
+def test_sem_rolos_tem_chaves_vazias():
+    plano = {"mapas": [{"id": 0, "n_pecas": 4, "composicao": {"P": 4}}],
+             "camadas": {"AZUL": {0: 2}}, "consumo_peca": 1.0}
+    res = alocar_rolos(plano, {}, dict(CONFIG_BASE))
+    assert res["por_cor"]["AZUL"]["sugestoes_corte_separado"] == []

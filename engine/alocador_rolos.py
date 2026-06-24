@@ -52,6 +52,8 @@ PREMISSAS FIXAS (documentadas para quem for manter):
 
 import math
 
+from engine.reaproveitamento import sugerir_corte_separado
+
 
 # ---------------------------------------------------------------------------
 # Funcoes auxiliares
@@ -152,6 +154,14 @@ def alocar_rolos(plano, rolos, config):
             n_pecs = int(m.get("n_pecas", sum(m.get("composicao", {}).values())))
             comp_camada_por_id[mid] = round(n_pecs * consumo_peca, 6)
 
+    composicao_por_id = {}
+    cpp_por_id = {}
+    for m in mapas_plano:
+        mid_ = int(m["id"])
+        composicao_por_id[mid_] = dict(m.get("composicao", {}))
+        n_pecs = int(m.get("n_pecas", sum(m.get("composicao", {}).values()))) or 1
+        cpp_por_id[mid_] = round(comp_camada_por_id.get(mid_, 0.0) / n_pecs, 6)
+
     resultado_por_cor = {}
     alertas           = []
     acc = {
@@ -191,6 +201,7 @@ def alocar_rolos(plano, rolos, config):
                 "refugo_percentual"     : 0.0,
                 "tecido_a_comprar_m"    : round(tecido_def, 3),
                 "n_sub_enfestos"        : 0,
+                "sugestoes_corte_separado" : [],
             }
             acc["cores_com_deficit"].append(cor)
             continue
@@ -326,6 +337,15 @@ def alocar_rolos(plano, rolos, config):
             for mid in deficit
         ), 3)
 
+        pontas_estoque = [
+            {"rolo_origem_indice": r["indice"], "ponta_m": r["ponta_m"]}
+            for r in rolos_resultado if r["ponta_classe"] == "estoque" and r["ponta_m"] > 0
+        ]
+        sugestoes_cs = sugerir_corte_separado(
+            deficit, comp_camada_por_id, composicao_por_id, cpp_por_id,
+            pontas_estoque, margem
+        ) if deficit else []
+
         resultado_por_cor[cor] = {
             "rolos"                 : rolos_resultado,
             "camadas_alocadas"      : camadas_alocadas,
@@ -336,6 +356,7 @@ def alocar_rolos(plano, rolos, config):
             "refugo_percentual"     : refugo_pct,
             "tecido_a_comprar_m"    : tecido_comprar,
             "n_sub_enfestos"        : n_sub,
+            "sugestoes_corte_separado" : sugestoes_cs,
         }
 
         acc["tecido_usado_total_m"]  += tecido_usado
@@ -360,6 +381,10 @@ def alocar_rolos(plano, rolos, config):
         "refugo_percentual_medio" : refugo_medio,
         "n_sub_enfestos_total"    : acc["n_sub_enfestos_total"],
         "cores_com_deficit"       : sorted(set(acc["cores_com_deficit"])),
+        "sugestoes_corte_total"   : sum(
+            len(res.get("sugestoes_corte_separado", []))
+            for res in resultado_por_cor.values()
+        ),
         "alertas"                 : alertas,
     }
 
