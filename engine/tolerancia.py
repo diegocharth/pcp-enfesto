@@ -7,6 +7,18 @@ PP e P com sobra positiva têm custo reduzido (são tamanhos prioritários).
 import math
 
 
+def _resolver_limite(valor, grade_valor):
+    """Magnitude inteira (>=0 p/ percentual) de um limite especial.
+    String terminando em '%' -> relativo a grade (round); senao absoluto."""
+    if isinstance(valor, str):
+        s = valor.strip()
+        if s.endswith('%'):
+            pct = float(s[:-1].strip().replace(',', '.'))
+            return int(round(float(grade_valor) * pct / 100.0))
+        return int(round(float(s.replace(',', '.'))))
+    return int(valor)
+
+
 def calcular_limites(grade_valor: float, tamanho: str, config: dict,
                      regras_especiais: dict = None) -> tuple:
     """
@@ -21,8 +33,18 @@ def calcular_limites(grade_valor: float, tamanho: str, config: dict,
         tol_pct = max(1, round(float(grade_valor) * float(config.get("desvio_percentual_padrao", 20)) / 100.0))
         criterio = config.get("criterio_combinacao", "MIN").upper()
         tol_geral = min(tol_abs, tol_pct) if criterio == "MIN" else max(tol_abs, tol_pct)
-        lo = int(r["lo"]) if "lo" in r else -tol_geral
-        hi = int(r["hi"]) if "hi" in r else tol_geral
+        # 'lo': percentual -> magnitude negada; absoluto (int ou str) -> sinal preservado.
+        if "lo" in r:
+            v = r["lo"]
+            if isinstance(v, str) and v.strip().endswith('%'):
+                lo = -_resolver_limite(v, grade_valor)
+            elif isinstance(v, str):
+                lo = int(round(float(v.strip().replace(',', '.'))))
+            else:
+                lo = int(v)
+        else:
+            lo = -tol_geral
+        hi = _resolver_limite(r["hi"], grade_valor) if "hi" in r else tol_geral
         return (lo, hi)
 
     tol_abs = int(config.get("desvio_absoluto_padrao", 4))
