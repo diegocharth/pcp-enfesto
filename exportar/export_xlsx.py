@@ -129,6 +129,41 @@ def _calcular_tradeoff(sols, grade, tamanhos):
 # ══════════════════════════════════════════════════════════════════════════════
 # ABA RESUMO
 # ══════════════════════════════════════════════════════════════════════════════
+def _resumo_parametros_txt(config):
+    """Monta a linha de parametros do calculo para o cabecalho das planilhas.
+    Le tudo de `config` (fonte unica). Campos ausentes viram '—'/'nenhum'."""
+    def g(k, d=None):
+        v = config.get(k, d)
+        return d if v is None else v
+
+    regras = config.get("regras_especiais") or {}
+    if regras:
+        partes = []
+        for t, r in regras.items():
+            lo = r.get("lo", "")
+            hi = r.get("hi", "")
+            partes.append(f"{t}[{lo}..{hi}]")
+        regras_txt = ", ".join(partes)
+    else:
+        regras_txt = "nenhum"
+
+    timeout = config.get("timeout")
+    tempo   = config.get("tempo_processamento_s")
+    return (
+        f"Consumo: {g('consumo_peca_m', 1.0645)} m/pc"
+        f"  |  Mesa: {g('mesa_comprimento_m', 10)} m"
+        f"  |  Folhas/enfesto: {g('limite_folhas_padrao', 70)}"
+        f"  |  Tol. abs: {g('desvio_absoluto_padrao', '—')} pc"
+        f"  |  Tol. %: {g('desvio_percentual_padrao', '—')}%"
+        f"  |  Criterio: {g('criterio_combinacao', '—')}"
+        f"  |  Opcoes: {g('num_opcoes_saida', '—')}"
+        f"  |  Timeout: {timeout if timeout is not None else '—'} s"
+        f"  |  Tempo real: {round(tempo, 1) if tempo is not None else '—'} s"
+        f"  |  Limites especiais: {regras_txt}"
+        f"  |  Versao {g('versao', '—')}"
+    )
+
+
 def _aba_resumo(wb, solucoes, grade, tamanhos, referencia, config):
     ws = wb.create_sheet("Resumo")
     ws.column_dimensions["A"].width = 32
@@ -150,7 +185,7 @@ def _aba_resumo(wb, solucoes, grade, tamanhos, referencia, config):
 
     ws.merge_cells(f"A2:{get_column_letter(ncols + 1)}2")
     c2 = ws["A2"]
-    c2.value = f"Gerado em {ts}  |  Consumo: {config.get('consumo_peca_m',1.0645)}m/pç  |  Mesa: {config.get('mesa_comprimento_m',10)}m  |  Limite folhas/enfesto: {config.get('limite_folhas_padrao',70)}"
+    c2.value = f"Gerado em {ts}  |  " + _resumo_parametros_txt(config)
     c2.font  = Font(name="Calibri", size=9, color="444444")
     c2.fill  = PatternFill("solid", fgColor=C_AZUL_CLR)
     c2.alignment = Alignment(horizontal="left", vertical="center")
