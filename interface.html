@@ -2334,8 +2334,65 @@ function _renderResultadoAlocacao(data) {
   html += _sugestoesAlocacao(data);
 
   html += '<div class="btn-row" style="margin-top:8px">'
-    +'<button class="btn btn-ok" onclick="exportarAlocacao()">&#128190; Exportar Alocacao (.xlsx)</button></div>';
+    +'<button class="btn btn-ok" onclick="exportarAlocacao()">&#128190; Exportar Alocacao (.xlsx)</button>'
+    +'<button class="btn btn-s" onclick="abrirRelatorioAlocacao()">&#128424; Imprimir relatorio</button></div>';
   div.innerHTML = html;
+}
+
+function _htmlImpressaoAlocacao(d, ref) {
+  var res = d.resumo_geral || {};
+  var cores = Object.keys(d.por_cor || {});
+  var h = '<html><head><meta charset="utf-8"><title>Alocacao ' + ref + '</title>';
+  h += '<style>body{font-family:Arial,sans-serif;font-size:12px;color:#222;margin:18px}'
+     + 'h1{font-size:18px}h2{font-size:14px;border-bottom:1px solid #999;margin-top:18px}'
+     + 'table{border-collapse:collapse;width:100%;margin:4px 0}td,th{border:1px solid #ccc;padding:3px 6px;text-align:left}'
+     + '.cor{page-break-inside:avoid}.def{color:#b00}.ok{color:#070}'
+     + '@media print{button{display:none}}</style></head><body>';
+  h += '<h1>Alocacao de Rolos &mdash; ' + ref + '</h1>';
+  h += '<div>Tecido usado: ' + (+(res.tecido_usado_total_m||0)).toFixed(1) + 'm | '
+     + 'Ponta estoque: ' + (+(res.ponta_estoque_total_m||0)).toFixed(1) + 'm | '
+     + 'Refugo: ' + (+(res.refugo_real_total_m||0)).toFixed(1) + 'm | '
+     + 'Sub-enfestos: ' + (res.n_sub_enfestos_total||0) + '</div>';
+
+  cores.forEach(function(cor) {
+    var cr = d.por_cor[cor];
+    h += '<div class="cor"><h2>' + cor + '</h2>';
+    (cr.rolos||[]).forEach(function(r, ri) {
+      h += '<div><b>Rolo ' + (ri+1) + '</b> (' + r.comprimento_nominal_m + 'm): ';
+      h += (r.sub_enfestos||[]).map(function(s){
+        return s.n_camadas + ' folha(s) do mapa ' + s.mapa_id;
+      }).join('; ') || 'sem uso';
+      h += ' | ponta ' + r.ponta_m + 'm (' + r.ponta_classe + ')</div>';
+    });
+    (cr.sugestoes_corte_separado||[]).forEach(function(s){
+      var compos = Object.keys(s.composicao||{}).map(function(t){return s.composicao[t]+t;}).join('+');
+      h += '<div class="ok">&#8635; Corte separado: mapa ' + s.mapa_id + ' (' + s.rotulo + ': ' + compos + ') &mdash; '
+         + (s.cortes||[]).map(function(c){return c.n_camadas+' na ponta do rolo '+(c.rolo_origem_indice+1);}).join('; ');
+      if (s.deficit_residual_camadas>0) h += ' (faltam ' + s.deficit_residual_camadas + ')';
+      h += '</div>';
+    });
+    var comprar = parseFloat(cr.tecido_a_comprar_m)||0;
+    if (comprar>0) h += '<div class="def">Comprar aprox. ' + comprar.toFixed(1) + 'm para fechar.</div>';
+    h += '</div>';
+  });
+
+  h += '<h2>Sobras totais por rolo</h2><table><tr><th>Cor</th><th>Rolo</th><th>Ponta (m)</th><th>Classe</th></tr>';
+  cores.forEach(function(cor) {
+    (d.por_cor[cor].sobras_por_rolo||[]).forEach(function(s){
+      h += '<tr><td>' + cor + '</td><td>' + s.rolo_indice + '</td><td>' + s.ponta_m + '</td><td>' + s.ponta_classe + '</td></tr>';
+    });
+  });
+  h += '</table></body></html>';
+  return h;
+}
+
+function abrirRelatorioAlocacao() {
+  if (!window._ultimaAlocacao) return;
+  var w = window.open('', '_blank');
+  if (!w) { alert('Permita pop-ups para gerar o relatorio.'); return; }
+  w.document.write(_htmlImpressaoAlocacao(window._ultimaAlocacao.data, window._ultimaAlocacao.referencia));
+  w.document.close();
+  w.onload = function() { w.focus(); w.print(); };
 }
 
 async function exportarAlocacao() {
