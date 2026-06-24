@@ -210,16 +210,6 @@ def _add_progresso(msg):
         _progresso_fila.append(msg)
 
 
-def _copiar_para_downloads(caminho):
-    import shutil as _sh
-    try:
-        dl = os.path.join(os.path.expanduser('~'), 'Downloads')
-        if os.path.isdir(dl):
-            _sh.copy2(caminho, os.path.join(dl, os.path.basename(caminho)))
-    except Exception:
-        pass
-
-
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
 
@@ -460,7 +450,6 @@ class Handler(BaseHTTPRequestHandler):
         for s in solucoes: s["consumo"] = consumo
         pasta   = os.path.join(BASE_DIR, "dados", "resultados")
         caminho = exportar_xlsx(solucoes, grade, tamanhos, limites, cfg, ref, pasta)
-        _copiar_para_downloads(caminho)
         self._send(200, {"caminho": caminho, "nome": os.path.basename(caminho)})
 
     def _salvar_cores(self, p):
@@ -626,7 +615,6 @@ class Handler(BaseHTTPRequestHandler):
 
         # Uma unica parte -> devolve o proprio xlsx (sem zipar).
         if len(arquivos) == 1:
-            _copiar_para_downloads(arquivos[0])
             self._send(200, {"caminho": arquivos[0], "nome": os.path.basename(arquivos[0])})
             return
 
@@ -636,7 +624,6 @@ class Handler(BaseHTTPRequestHandler):
         with zipfile.ZipFile(zip_cam, "w", zipfile.ZIP_DEFLATED) as z:
             for a in arquivos:
                 z.write(a, os.path.basename(a))
-        _copiar_para_downloads(zip_cam)
         self._send(200, {"caminho": zip_cam, "nome": zip_nome})
 
     def _exportar_multiref(self, p):
@@ -647,7 +634,6 @@ class Handler(BaseHTTPRequestHandler):
         config     = p.get("config", carregar_config())
         pasta      = os.path.join(BASE_DIR, "dados", "resultados")
         caminho    = exportar_multiref_xlsx(solucoes, tamanhos, referencia, config, pasta)
-        _copiar_para_downloads(caminho)
         self._send(200, {"caminho": caminho, "nome": os.path.basename(caminho)})
 
 
