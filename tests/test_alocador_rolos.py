@@ -386,3 +386,18 @@ def test_sem_rolos_tem_chaves_vazias():
              "camadas": {"AZUL": {0: 2}}, "consumo_peca": 1.0}
     res = alocar_rolos(plano, {}, dict(CONFIG_BASE))
     assert res["por_cor"]["AZUL"]["sugestoes_corte_separado"] == []
+
+
+def test_sobras_por_rolo_e_consolidado():
+    """C3: cada cor expoe sobras_por_rolo; resumo_geral expoe sobras_consolidado."""
+    plano = {"mapas": [{"id": 0, "n_pecas": 4, "composicao": {"P": 4}}],
+             "camadas": {"AZUL": {0: 2}}, "consumo_peca": 1.0}
+    res = alocar_rolos(plano, {"AZUL": [20.0]}, dict(CONFIG_BASE))
+    cr = res["por_cor"]["AZUL"]
+    assert "sobras_por_rolo" in cr and len(cr["sobras_por_rolo"]) == 1
+    s = cr["sobras_por_rolo"][0]
+    for k in ("rolo_indice", "nominal_m", "seguro_m", "usado_m", "ponta_m",
+              "ponta_classe", "reaproveitada_em"):
+        assert k in s
+    assert "sobras_consolidado" in res["resumo_geral"]
+    assert "AZUL" in res["resumo_geral"]["sobras_consolidado"]

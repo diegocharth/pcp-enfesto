@@ -202,6 +202,7 @@ def alocar_rolos(plano, rolos, config):
                 "tecido_a_comprar_m"    : round(tecido_def, 3),
                 "n_sub_enfestos"        : 0,
                 "sugestoes_corte_separado" : [],
+                "sobras_por_rolo"       : [],
             }
             acc["cores_com_deficit"].append(cor)
             continue
@@ -341,6 +342,18 @@ def alocar_rolos(plano, rolos, config):
             {"rolo_origem_indice": r["indice"], "ponta_m": r["ponta_m"]}
             for r in rolos_resultado if r["ponta_classe"] == "estoque" and r["ponta_m"] > 0
         ]
+        sobras_por_rolo = [
+            {
+                "rolo_indice"  : r["indice"] + 1,
+                "nominal_m"    : r["comprimento_nominal_m"],
+                "seguro_m"     : r["comprimento_seguro_m"],
+                "usado_m"      : r["usado_m"],
+                "ponta_m"      : r["ponta_m"],
+                "ponta_classe" : r["ponta_classe"],
+                "reaproveitada_em": None,
+            }
+            for r in rolos_resultado
+        ]
         sugestoes_cs = sugerir_corte_separado(
             deficit, comp_camada_por_id, composicao_por_id, cpp_por_id,
             pontas_estoque, margem
@@ -357,6 +370,7 @@ def alocar_rolos(plano, rolos, config):
             "tecido_a_comprar_m"    : tecido_comprar,
             "n_sub_enfestos"        : n_sub,
             "sugestoes_corte_separado" : sugestoes_cs,
+            "sobras_por_rolo"       : sobras_por_rolo,
         }
 
         acc["tecido_usado_total_m"]  += tecido_usado
@@ -385,6 +399,17 @@ def alocar_rolos(plano, rolos, config):
             len(res.get("sugestoes_corte_separado", []))
             for res in resultado_por_cor.values()
         ),
+        "sobras_consolidado"      : {
+            c: {
+                "ponta_estoque_m"  : res["ponta_estoque_total_m"],
+                "refugo_m"         : res["refugo_real_m"],
+                "n_pontas_estoque" : sum(
+                    1 for s in res.get("sobras_por_rolo", [])
+                    if s["ponta_classe"] == "estoque" and s["ponta_m"] > 0
+                ),
+            }
+            for c, res in resultado_por_cor.items()
+        },
         "alertas"                 : alertas,
     }
 
