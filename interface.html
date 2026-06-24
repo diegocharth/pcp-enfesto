@@ -357,6 +357,8 @@ input:focus,select:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 2p
     <button class="btn btn-s btn-sm" style="margin-top:8px" onclick="adicionarCorManual()">+ Adicionar cor manualmente</button>
   </div>
 
+  <div id="aloc-mapas-audaces"></div>
+
   <div class="btn-row" style="margin-top:10px">
     <button class="btn btn-p" onclick="iniciarAlocacao()">&#128230; Alocar Rolos</button>
     <span class="sm" id="aloc-st"></span>
@@ -2031,6 +2033,8 @@ function atualizarCoresAlocacao() {
     row.appendChild(acoes);
     lista.appendChild(row);
   });
+
+  _renderMapasAudaces();
 }
 
 function adicionarCorManual() {
@@ -2083,6 +2087,37 @@ async function iniciarAlocacao() {
   } catch(e) { st.textContent = 'Erro: ' + e.message; }
 }
 
+// C2: comprimento real do mapa (Audaces) por id. Vazio = usa o calculado.
+window._compRealAudaces = window._compRealAudaces || {};
+
+function _renderMapasAudaces() {
+  var box = document.getElementById('aloc-mapas-audaces');
+  if (!box) return;
+  var plano = _montarPlanoParaAlocacao();
+  if (!plano) { box.innerHTML = ''; return; }
+  var h = '<div style="font-size:12px;font-weight:600;color:var(--tx2);margin:8px 0 4px">'
+        + 'Comprimento real dos mapas (Audaces) &mdash; vazio usa o calculado:</div>';
+  plano.mapas.forEach(function(m) {
+    var calc = m.comp_camada_m;
+    var real = window._compRealAudaces[m.id];
+    h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;font-size:12px">';
+    h += '<span style="width:160px">Mapa ' + m.id + ' (' + m.n_pecas + ' pc, calc ' + calc + 'm)</span>';
+    h += '<input type="text" inputmode="decimal" class="aloc-audaces" data-mid="' + m.id + '" '
+       + 'value="' + (real !== undefined && real !== null ? String(real).replace('.', ',') : '') + '" '
+       + 'placeholder="real (m)" style="width:90px;padding:4px 6px;border:1px solid var(--bd2);border-radius:var(--r)">';
+    h += '</div>';
+  });
+  box.innerHTML = h;
+  box.querySelectorAll('.aloc-audaces').forEach(function(inp) {
+    inp.addEventListener('input', function() {
+      var v = parseFloat(String(this.value).trim().replace(',', '.'));
+      var mid = parseInt(this.dataset.mid, 10);
+      if (!isNaN(v) && v > 0) window._compRealAudaces[mid] = v;
+      else delete window._compRealAudaces[mid];
+    });
+  });
+}
+
 function _montarPlanoParaAlocacao() {
   // Constroi UM plano unico para a alocacao, agregando TODOS os grupos da
   // particao (single-ref e combinados). Cada mapa recebe comp_camada_m explicito:
@@ -2098,7 +2133,8 @@ function _montarPlanoParaAlocacao() {
     var fl = sol.folhas || {};
     (sol.mapas || []).forEach(function(m, k) {
       var np = Object.values(m).reduce(function(a,b){return a+b;}, 0);
-      mapas.push({id:mid, composicao:m, n_pecas:np, comp_camada_m:+(np*consumo).toFixed(4)});
+      var _calcS=+(np*consumo).toFixed(4), _realS=(window._compRealAudaces||{})[mid];
+      mapas.push({id:mid, composicao:m, n_pecas:np, comp_camada_m:(_realS>0?+(+_realS).toFixed(4):_calcS)});
       Object.keys(fl).forEach(function(cor){ addCamada(cor, (fl[cor]||[])[k]||0); });
       mid++;
     });
@@ -2116,7 +2152,8 @@ function _montarPlanoParaAlocacao() {
         // Camada fisica e compartilhada entre as refs do enfesto -> usa o maior nº de folhas.
         Object.keys(fl).forEach(function(cor){ var v=(fl[cor]||[])[k]||0; if(v>(fpc[cor]||0)) fpc[cor]=v; });
       });
-      mapas.push({id:mid, composicao:compos, n_pecas:np, comp_camada_m:+((comps[k]||0)).toFixed(4)});
+      var _calcM=+((comps[k]||0)).toFixed(4), _realM=(window._compRealAudaces||{})[mid];
+      mapas.push({id:mid, composicao:compos, n_pecas:np, comp_camada_m:(_realM>0?+(+_realM).toFixed(4):_calcM)});
       Object.keys(fpc).forEach(function(cor){ addCamada(cor, fpc[cor]); });
       mid++;
     }
