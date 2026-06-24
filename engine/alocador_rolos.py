@@ -363,4 +363,10 @@ def alocar_rolos(plano, rolos, config):
         "alertas"                 : alertas,
     }
 
-    return {"por_cor": resultado_por_cor, "resumo_geral": resumo_geral}
+    params = {
+        "margem_seguranca_enfesto_m": round(float(margem), 4),
+        "folga_incerteza_pct": float(config.get("folga_incerteza_pct", 0.03)),
+        "folga_incerteza_m": float(config.get("folga_incerteza_m", 0.0)),
+        "ponta_minima_util_m": float(ponta_min),
+    }
+    return {"por_cor": resultado_por_cor, "resumo_geral": resumo_geral, "params": params}

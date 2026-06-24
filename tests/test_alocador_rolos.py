@@ -340,3 +340,28 @@ def test_folga_fixa():
     cfg = dict(CONFIG_BASE, folga_incerteza_m=2.0)
     seg = _comp_seguro(100.0, cfg)
     assert abs(seg - 98.0) < 0.001
+
+
+def test_resultado_inclui_bloco_params():
+    """A3: o resultado deve carregar os parametros de alocacao usados, para
+    aparecerem no Excel sem depender do frontend."""
+    plano = {
+        "mapas": [{"id": 0, "n_pecas": 4}],
+        "camadas": {"AZUL": {0: 3}},
+        "consumo_peca": 1.0,
+    }
+    rolos = {"AZUL": [20.0]}
+    cfg = dict(CONFIG_BASE)
+    cfg["margem_seguranca_enfesto_m"] = 0.10
+    cfg["folga_incerteza_pct"] = 0.03
+    cfg["folga_incerteza_m"] = 0.0
+    cfg["ponta_minima_util_m"] = 0.5
+
+    res = alocar_rolos(plano, rolos, cfg)
+
+    assert "params" in res
+    p = res["params"]
+    assert p["margem_seguranca_enfesto_m"] == 0.10
+    assert p["folga_incerteza_pct"] == 0.03
+    assert p["folga_incerteza_m"] == 0.0
+    assert p["ponta_minima_util_m"] == 0.5
