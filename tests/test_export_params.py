@@ -1,5 +1,6 @@
 """A3: o cabecalho das planilhas deve conter todos os parametros do calculo."""
-from exportar.export_xlsx import _resumo_parametros_txt
+import openpyxl
+from exportar.export_xlsx import _resumo_parametros_txt, _aba_resumo_multiref
 
 
 def _cfg():
@@ -38,3 +39,18 @@ def test_resumo_parametros_txt_sem_campos_opcionais():
     assert "Consumo" in s
     assert "Timeout" in s          # mostra "—"
     assert "Limites especiais" in s  # mostra "nenhum"
+
+
+def test_aba_resumo_multiref_cabecalho_tem_params():
+    sol = {
+        "n_mapas": 1,
+        "refs_sol": [{"nome": "REF1", "mapas": []}],
+        "comprimentos": [],
+        "resumo": {"total_folhas": 10, "desvio_total": 2,
+                   "comprimento_total": 50.0, "media_pecas_mapa": 6.0},
+    }
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    _aba_resumo_multiref(wb, [sol], "GrupoX", _cfg())
+    a2 = wb["Resumo"]["A2"].value
+    assert "Tol. abs" in a2 and "Criterio" in a2 and "Versao" in a2

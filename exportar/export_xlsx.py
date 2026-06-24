@@ -792,7 +792,8 @@ def exportar(solucoes, grade, tamanhos, limites, config, referencia, pasta_saida
 # ══════════════════════════════════════════════════════════════════════════════
 # EXPORTAR MULTI-REF
 # ══════════════════════════════════════════════════════════════════════════════
-def _aba_resumo_multiref(wb, solucoes, referencia):
+def _aba_resumo_multiref(wb, solucoes, referencia, config=None):
+    config = config or {}
     """Aba de resumo comparando opções multi-ref."""
     ws = wb.create_sheet("Resumo")
     n = len(solucoes)
@@ -814,7 +815,8 @@ def _aba_resumo_multiref(wb, solucoes, referencia):
     ws.merge_cells(f"A2:{get_column_letter(ncols + 1)}2")
     c2 = ws["A2"]
     n_refs = len(solucoes[0]["refs_sol"]) if solucoes else 0
-    c2.value = f"Gerado em {ts}  |  Enfesto combinado: {n_refs} refs  |  {n} opção(ões)"
+    c2.value = (f"Gerado em {ts}  |  Enfesto combinado: {n_refs} refs  |  {n} opcao(oes)"
+                f"  |  " + _resumo_parametros_txt(config))
     c2.font  = Font(name="Calibri", size=9, color="444444")
     c2.fill  = PatternFill("solid", fgColor=C_AZUL_CLR)
     c2.alignment = Alignment(horizontal="left", vertical="center")
@@ -1116,7 +1118,7 @@ def exportar_multiref(solucoes, tamanhos, referencia, config, pasta_saida="dados
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
 
-    _aba_resumo_multiref(wb, solucoes, referencia)
+    _aba_resumo_multiref(wb, solucoes, referencia, config)
 
     for idx, sol in enumerate(solucoes, 1):
         _aba_plano_multiref(wb, sol, idx, tamanhos, referencia)
