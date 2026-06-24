@@ -430,6 +430,7 @@ class Handler(BaseHTTPRequestHandler):
             "limites"   : {c: {t: list(l) for t,l in ts.items()} for c,ts in limites.items()},
             "config"    : cfg,
             "versao"    : VERSION,
+            "regras_especiais": regras,
         }
         # Guarda no cache apenas se a busca foi completa (r_skip==0 = nao cortada
         # por timeout no meio de um nivel). Resultado parcial nunca e cacheado,
@@ -449,6 +450,10 @@ class Handler(BaseHTTPRequestHandler):
         consumo  = float(cfg.get("consumo_peca_m", 1.0645))
         for s in solucoes: s["consumo"] = consumo
         pasta   = os.path.join(BASE_DIR, "dados", "resultados")
+        cfg["versao"]                = VERSION
+        cfg["timeout"]               = p.get("timeout")
+        cfg["tempo_processamento_s"] = p.get("tempo_s")
+        cfg["regras_especiais"]      = p.get("regras_especiais", cfg.get("regras_especiais"))
         caminho = exportar_xlsx(solucoes, grade, tamanhos, limites, cfg, ref, pasta)
         self._send(200, {"caminho": caminho, "nome": os.path.basename(caminho)})
 
@@ -593,6 +598,10 @@ class Handler(BaseHTTPRequestHandler):
         for g in grupos:
             data = g.get("data", {})
             cfg  = data.get("config", carregar_config())
+            cfg["versao"]                = VERSION
+            cfg["timeout"]               = data.get("timeout")
+            cfg["tempo_processamento_s"] = data.get("tempo_s")
+            cfg["regras_especiais"]      = data.get("regras_especiais", cfg.get("regras_especiais"))
             sols = data.get("solucoes", [])
             tams = data.get("tamanhos", [])
             ref  = data.get("referencia", referencia)
@@ -633,6 +642,9 @@ class Handler(BaseHTTPRequestHandler):
         referencia = p.get("referencia", "Grupo")
         config     = p.get("config", carregar_config())
         pasta      = os.path.join(BASE_DIR, "dados", "resultados")
+        config["versao"]                = VERSION
+        config["timeout"]               = p.get("timeout")
+        config["tempo_processamento_s"] = p.get("tempo_s")
         caminho    = exportar_multiref_xlsx(solucoes, tamanhos, referencia, config, pasta)
         self._send(200, {"caminho": caminho, "nome": os.path.basename(caminho)})
 
@@ -687,7 +699,8 @@ class Handler(BaseHTTPRequestHandler):
         referencia = p.get("referencia", "REF")
         pasta      = os.path.join(BASE_DIR, "dados", "resultados")
         try:
-            caminho = exportar_alocacao_xlsx(resultado, referencia, pasta)
+            params  = {**(resultado.get("params") or {}), "versao": VERSION}
+            caminho = exportar_alocacao_xlsx(resultado, referencia, pasta, params)
             self._send(200, {"caminho": caminho})
         except Exception as e:
             self._send(500, {"erro": str(e)})
