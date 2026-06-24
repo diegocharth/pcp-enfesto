@@ -404,7 +404,7 @@ def test_sobras_por_rolo_e_consolidado():
 
 
 def test_export_alocacao_tem_sobras_e_corte():
-    import tempfile, os, openpyxl
+    import tempfile, openpyxl
     from exportar.export_xlsx import exportar_alocacao
     plano = {"mapas": [{"id": 0, "n_pecas": 6, "composicao": {"P": 3, "M": 3}}],
              "camadas": {"AZUL": {0: 5}}, "consumo_peca": 1.3}

@@ -126,12 +126,20 @@ def alocar_rolos(plano, rolos, config):
                     "refugo_percentual":   float,   # % sobre comprimento nominal total
                     "tecido_a_comprar_m":  float,
                     "n_sub_enfestos":      int,
+                    "sugestoes_corte_separado": [ ... ],  # cortes avulsos sugeridos a
+                                                          #   partir das pontas
+                    "sobras_por_rolo":     [{"rolo_indice", "ponta_m", "ponta_classe",
+                                             "reaproveitada_em"}, ...],  # sobras por rolo
                 }
             },
             "resumo_geral": {
                 "tecido_usado_total_m", "ponta_estoque_total_m",
                 "refugo_real_total_m", "refugo_percentual_medio",
-                "n_sub_enfestos_total", "cores_com_deficit", "alertas"
+                "n_sub_enfestos_total", "cores_com_deficit",
+                "sugestoes_corte_total",   # contador de cortes separados sugeridos
+                "sobras_consolidado",      # por cor: {ponta_estoque_m, refugo_m,
+                                           #   n_pontas_estoque}
+                "alertas"
             }
         }
     """
