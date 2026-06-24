@@ -48,18 +48,20 @@ def _resolver_folhas_cor(mapas_sel, grade_cor, tamanhos, limites_cor, max_f=120,
     T    = len(tamanhos)
 
     def eval_fs(fs):
-        """Retorna (desvio_total, viavel) calculando o cortado uma única vez."""
-        d = 0; ok = True
+        """Retorna (desvio_total, desvio_relativo, viavel)."""
+        d = 0; d_rel = 0.0; ok = True
         for ti in range(T):
             ct = 0
             for k in range(N):
                 ct += fs[k] * rows[k][ti]
             diff = ct - g[ti]
-            d += diff if diff >= 0 else -diff
+            ad = diff if diff >= 0 else -diff
+            d += ad
+            d_rel += ad / (g[ti] if g[ti] > 0 else 1)
             lo, hi = lims[ti]
             if diff < lo or diff > hi:
                 ok = False
-        return d, ok
+        return d, d_rel, ok
 
     # N=1: enumeração completa — rápido e exato
     if N == 1:
@@ -67,11 +69,11 @@ def _resolver_folhas_cor(mapas_sel, grade_cor, tamanhos, limites_cor, max_f=120,
         d_max = max(r0) if r0 else 0
         if d_max == 0:
             return None
-        best_fs = None; best_dev = float('inf')
+        best_fs = None; best_dev = float('inf'); best_drel = float('inf')
         for f in range(0, min(caps[0], int(grade_max / max(d_max, 1)) + 6) + 1):
-            d, ok = eval_fs([f])
-            if ok and d < best_dev:
-                best_dev = d; best_fs = [f]
+            d, d_rel, ok = eval_fs([f])
+            if ok and (d < best_dev or (d == best_dev and d_rel < best_drel)):
+                best_dev = d; best_drel = d_rel; best_fs = [f]
                 if d == 0:
                     return best_fs
         return best_fs
@@ -104,27 +106,27 @@ def _resolver_folhas_cor(mapas_sel, grade_cor, tamanhos, limites_cor, max_f=120,
     starts.append(seq)
 
     # ── Coordinate descent a partir de cada semente ─────────────────────────
-    best_fs = None; best_feas_dev = float('inf')
+    best_fs = None; best_feas_dev = float('inf'); best_feas_drel = float('inf')
     for s in starts:
         fs = list(s)
-        cur_dev, cur_ok = eval_fs(fs)
-        if cur_ok and cur_dev < best_feas_dev:
-            best_feas_dev = cur_dev; best_fs = list(fs)
+        cur_dev, cur_drel, cur_ok = eval_fs(fs)
+        if cur_ok and (cur_dev < best_feas_dev or (cur_dev == best_feas_dev and cur_drel < best_feas_drel)):
+            best_feas_dev = cur_dev; best_feas_drel = cur_drel; best_fs = list(fs)
         for _ in range(sweeps):
             moved = False
             for i in range(N):
                 orig = fs[i]
                 lo = max(0, orig - W); hi = min(caps[i], orig + W)
                 best_v = orig
-                base_dev, _ = eval_fs(fs)
+                base_dev, _bd, _ = eval_fs(fs)
                 best_local_dev = base_dev
                 for v in range(lo, hi + 1):
                     if v == orig:
                         continue
                     fs[i] = v
-                    d, ok = eval_fs(fs)
-                    if ok and d < best_feas_dev:
-                        best_feas_dev = d; best_fs = list(fs)
+                    d, d_rel, ok = eval_fs(fs)
+                    if ok and (d < best_feas_dev or (d == best_feas_dev and d_rel < best_feas_drel)):
+                        best_feas_dev = d; best_feas_drel = d_rel; best_fs = list(fs)
                     if d < best_local_dev:
                         best_local_dev = d; best_v = v
                 fs[i] = best_v
@@ -327,6 +329,10 @@ def resolver(grade, tamanhos, limites, config, callback_progresso=None, timeout_
 
             cortado_tot = _calcular_cortado(list(combo), folhas_sol, grade, tamanhos)
             dev_total   = desvio_absoluto_total(cortado_tot, grade, tamanhos)
+            dev_rel = round(sum(
+                abs(cortado_tot[c].get(t, 0) - grade[c].get(t, 0)) / (grade[c].get(t, 0) or 1)
+                for c in grade for t in tamanhos
+            ), 4)
             pecas_por_mapa = [sum(m.values()) for m in combo]
             total_folhas   = sum(sum(folhas_sol[c]) for c in cores)
 
@@ -343,6 +349,7 @@ def resolver(grade, tamanhos, limites, config, callback_progresso=None, timeout_
                     "comprimento_por_mapa": [round(p * consumo, 4) for p in pecas_por_mapa],
                     "comprimento_total"   : round(sum(pecas_por_mapa) * consumo, 4),
                     "desvio_total"        : dev_total,
+                    "desvio_relativo"     : dev_rel,
                     "max_folhas_enfesto"  : max_folhas,
                     "consumo_peca"        : consumo,
                 }
@@ -359,6 +366,7 @@ def resolver(grade, tamanhos, limites, config, callback_progresso=None, timeout_
                 s["n_mapas"],
                 s["resumo"]["desvio_total"],
                 -s["resumo"]["media_pecas_mapa"],
+                s["resumo"]["desvio_relativo"],
             ))
             distintas = _filtrar_distintas(melhores, num_opcoes + 3)
             melhor_dev = distintas[0]["resumo"]["desvio_total"]
@@ -386,6 +394,7 @@ def resolver(grade, tamanhos, limites, config, callback_progresso=None, timeout_
 
     melhores.sort(key=lambda s: (
         s["n_mapas"], s["resumo"]["desvio_total"], -s["resumo"]["media_pecas_mapa"],
+        s["resumo"]["desvio_relativo"],
     ))
     result = _filtrar_distintas(melhores, num_opcoes)
 

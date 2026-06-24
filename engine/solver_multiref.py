@@ -136,6 +136,7 @@ def resolver_multiref(refs_data, tamanhos, config, callback=None, timeout_s=120,
             folhas_por_ref  = {}
             valida          = True
             desvio_total    = 0
+            desvio_rel_total = 0
 
             for ri, ref in enumerate(refs_data):
                 mapas_slots = [combo[k][ri] for k in range(n_mapas)]
@@ -155,6 +156,10 @@ def resolver_multiref(refs_data, tamanhos, config, callback=None, timeout_s=120,
                     ct = {t: sum(fs[k] * mapas_slots[k].get(t, 0) for k in range(n_mapas))
                           for t in tamanhos}
                     desvio_total += sum(abs(ct[t] - grade_cor.get(t, 0)) for t in tamanhos)
+                    desvio_rel_total += sum(
+                        abs(ct[t] - grade_cor.get(t, 0)) / (grade_cor.get(t, 0) or 1)
+                        for t in tamanhos
+                    )
 
                 if not valida:
                     break
@@ -218,6 +223,7 @@ def resolver_multiref(refs_data, tamanhos, config, callback=None, timeout_s=120,
                     "comprimento_total"       : round(sum(comprimentos), 4),
                     "total_folhas"            : total_folhas,
                     "desvio_total"            : desvio_total,
+                    "desvio_relativo"         : round(desvio_rel_total, 4),
                     "media_pecas_mapa"        : media_pecas,
                 },
             })
@@ -229,6 +235,7 @@ def resolver_multiref(refs_data, tamanhos, config, callback=None, timeout_s=120,
                 s["n_mapas"],
                 s["desvio_total"],
                 -s["resumo"]["media_pecas_mapa"],
+                s["resumo"]["desvio_relativo"],
             ))
             if primeiro_n == 0:
                 primeiro_n = n_mapas
@@ -251,5 +258,6 @@ def resolver_multiref(refs_data, tamanhos, config, callback=None, timeout_s=120,
         s["n_mapas"],
         s["desvio_total"],
         -s["resumo"]["media_pecas_mapa"],
+        s["resumo"]["desvio_relativo"],
     ))
     return melhores[:num_opcoes]
