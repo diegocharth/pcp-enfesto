@@ -1,6 +1,13 @@
 """A3: o cabecalho das planilhas deve conter todos os parametros do calculo."""
+import os
+import tempfile
 import openpyxl
-from exportar.export_xlsx import _resumo_parametros_txt, _aba_resumo_multiref
+from engine.alocador_rolos import alocar_rolos
+from exportar.export_xlsx import (
+    _resumo_parametros_txt,
+    _aba_resumo_multiref,
+    exportar_alocacao,
+)
 
 
 def _cfg():
@@ -54,12 +61,6 @@ def test_aba_resumo_multiref_cabecalho_tem_params():
     _aba_resumo_multiref(wb, [sol], "GrupoX", _cfg())
     a2 = wb["Resumo"]["A2"].value
     assert "Tol. abs" in a2 and "Criterio" in a2 and "Versao" in a2
-
-
-import os, tempfile
-import openpyxl
-from engine.alocador_rolos import alocar_rolos
-from exportar.export_xlsx import exportar_alocacao
 
 
 def test_export_alocacao_mostra_parametros():
