@@ -1258,6 +1258,32 @@ def _aba_cor_alocacao(wb, cor, cor_res):
             _cel(ws, r, 6, f"(+{sub['margem_m']}m faca)", fundo=C_CINZA_ALT)
             r += 1
 
+    sobras = cor_res.get("sobras_por_rolo", [])
+    if sobras:
+        r += 1
+        _cel(ws, r, 1, "Sobras por rolo", negrito=True, fundo=C_AZUL_MED, cor_txt=C_BRANCO)
+        r += 1
+        for s in sobras:
+            _cel(ws, r, 1, f"Rolo {s['rolo_indice']}")
+            _cel(ws, r, 2, s["ponta_m"], alinha="right")
+            _cel(ws, r, 3, s["ponta_classe"])
+            r += 1
+
+    sugs = cor_res.get("sugestoes_corte_separado", [])
+    if sugs:
+        r += 1
+        _cel(ws, r, 1, "Corte separado sugerido", negrito=True, fundo=C_VERDE, cor_txt=C_VERDE_TX)
+        r += 1
+        for s in sugs:
+            compos = "+".join(f"{q}{t}" for t, q in (s.get("composicao") or {}).items())
+            cortes = "; ".join(
+                f"{c['n_camadas']}x rolo {c['rolo_origem_indice']+1}"
+                for c in s.get("cortes", [])
+            )
+            _cel(ws, r, 1, f"Mapa {s['mapa_id']} ({s['rotulo']}: {compos})")
+            _cel(ws, r, 2, cortes)
+            r += 1
+
 
 def exportar_alocacao(resultado, referencia, pasta_saida, params=None):
     """

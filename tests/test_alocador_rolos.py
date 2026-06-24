@@ -401,3 +401,20 @@ def test_sobras_por_rolo_e_consolidado():
         assert k in s
     assert "sobras_consolidado" in res["resumo_geral"]
     assert "AZUL" in res["resumo_geral"]["sobras_consolidado"]
+
+
+def test_export_alocacao_tem_sobras_e_corte():
+    import tempfile, os, openpyxl
+    from exportar.export_xlsx import exportar_alocacao
+    plano = {"mapas": [{"id": 0, "n_pecas": 6, "composicao": {"P": 3, "M": 3}}],
+             "camadas": {"AZUL": {0: 5}}, "consumo_peca": 1.3}
+    cfg = dict(CONFIG_BASE); cfg["folga_incerteza_pct"] = 0.03
+    res = alocar_rolos(plano, {"AZUL": [30.0]}, cfg)
+    with tempfile.TemporaryDirectory() as d:
+        cam = exportar_alocacao(res, "TESTE", d, {**res.get("params", {}), "versao": "x"})
+        wb = openpyxl.load_workbook(cam)
+        ws = [s for s in wb.sheetnames if s.startswith("Rolos")][0]
+        textos = " ".join(str(c.value) for row in wb[ws].iter_rows()
+                           for c in row if c.value is not None)
+    assert "Sobras por rolo" in textos
+    assert "Corte separado sugerido" in textos
