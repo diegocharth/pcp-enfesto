@@ -793,8 +793,8 @@ def exportar(solucoes, grade, tamanhos, limites, config, referencia, pasta_saida
 # EXPORTAR MULTI-REF
 # ══════════════════════════════════════════════════════════════════════════════
 def _aba_resumo_multiref(wb, solucoes, referencia, config=None):
-    config = config or {}
     """Aba de resumo comparando opções multi-ref."""
+    config = config or {}
     ws = wb.create_sheet("Resumo")
     n = len(solucoes)
     ncols = max(n + 1, 3)
