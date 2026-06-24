@@ -1142,7 +1142,6 @@ def _aba_resumo_alocacao(wb, resultado, referencia, params=None):
     ws.merge_cells(f"A{r}:B{r}")
     r += 1
 
-    from datetime import datetime as _dt
     params = params or resultado.get("params") or {}
     _cel(ws, r, 1, "Parametros da alocacao", negrito=True, fundo=C_AZUL_MED, cor_txt=C_BRANCO)
     ws.merge_cells(f"A{r}:B{r}")
@@ -1154,7 +1153,7 @@ def _aba_resumo_alocacao(wb, resultado, referencia, params=None):
         ("Folga de incerteza fixa (m)", params.get("folga_incerteza_m", "—")),
         ("Ponta minima util (m)", params.get("ponta_minima_util_m", "—")),
         ("Versao", params.get("versao", "—")),
-        ("Gerado em", _dt.now().strftime("%d/%m/%Y %H:%M")),
+        ("Gerado em", datetime.now().strftime("%d/%m/%Y %H:%M")),
     ]
     for label, valor in linhas_param:
         _cel(ws, r, 1, label, fundo=C_CINZA_HDR, negrito=True)
