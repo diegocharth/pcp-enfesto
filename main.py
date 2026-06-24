@@ -574,6 +574,7 @@ class Handler(BaseHTTPRequestHandler):
             "solucoes"  : ser(solucoes),
             "tamanhos"  : tamanhos,
             "config"    : cfg,
+            "regras_especiais": regras,
             "versao"    : VERSION,
         }
         # Cacheia apenas quando convergiu antes do teto de tempo. Se usou quase

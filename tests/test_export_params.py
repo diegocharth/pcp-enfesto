@@ -1,5 +1,4 @@
 """A3: o cabecalho das planilhas deve conter todos os parametros do calculo."""
-import os
 import tempfile
 import openpyxl
 from engine.alocador_rolos import alocar_rolos
