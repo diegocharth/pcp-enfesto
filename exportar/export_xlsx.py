@@ -1130,7 +1130,7 @@ def exportar_multiref(solucoes, tamanhos, referencia, config, pasta_saida="dados
 
 # ── Exportação de Alocação de Rolos ──────────────────────────────────────────
 
-def _aba_resumo_alocacao(wb, resultado, referencia):
+def _aba_resumo_alocacao(wb, resultado, referencia, params=None):
     """Aba de resumo geral da alocacao de rolos."""
     ws = wb.create_sheet("Resumo Alocacao")
     ws.column_dimensions["A"].width = 32
@@ -1140,6 +1140,26 @@ def _aba_resumo_alocacao(wb, resultado, referencia):
     _cel(ws, r, 1, f"Alocacao de Rolos — {referencia}", negrito=True, tamanho=13,
          fundo=C_AZUL_ESC, cor_txt=C_BRANCO)
     ws.merge_cells(f"A{r}:B{r}")
+    r += 1
+
+    from datetime import datetime as _dt
+    params = params or resultado.get("params") or {}
+    _cel(ws, r, 1, "Parametros da alocacao", negrito=True, fundo=C_AZUL_MED, cor_txt=C_BRANCO)
+    ws.merge_cells(f"A{r}:B{r}")
+    r += 1
+    folga_pct = params.get("folga_incerteza_pct")
+    linhas_param = [
+        ("Margem de faca por sub-enfesto (m)", params.get("margem_seguranca_enfesto_m", "—")),
+        ("Folga de incerteza (%)", round(folga_pct * 100, 2) if folga_pct is not None else "—"),
+        ("Folga de incerteza fixa (m)", params.get("folga_incerteza_m", "—")),
+        ("Ponta minima util (m)", params.get("ponta_minima_util_m", "—")),
+        ("Versao", params.get("versao", "—")),
+        ("Gerado em", _dt.now().strftime("%d/%m/%Y %H:%M")),
+    ]
+    for label, valor in linhas_param:
+        _cel(ws, r, 1, label, fundo=C_CINZA_HDR, negrito=True)
+        _cel(ws, r, 2, valor, alinha="right")
+        r += 1
     r += 1
 
     resumo = resultado.get("resumo_geral", {})
@@ -1240,7 +1260,7 @@ def _aba_cor_alocacao(wb, cor, cor_res):
             r += 1
 
 
-def exportar_alocacao(resultado, referencia, pasta_saida):
+def exportar_alocacao(resultado, referencia, pasta_saida, params=None):
     """
     Exporta resultado do alocador de rolos para Excel.
 
@@ -1248,6 +1268,7 @@ def exportar_alocacao(resultado, referencia, pasta_saida):
         resultado: saida de alocar_rolos()
         referencia: nome da referencia/pedido
         pasta_saida: diretorio onde salvar
+        params: parametros usados no calculo (margem, folgas, versao, ...)
 
     Returns:
         str: caminho do arquivo gerado
@@ -1263,7 +1284,7 @@ def exportar_alocacao(resultado, referencia, pasta_saida):
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
 
-    _aba_resumo_alocacao(wb, resultado, referencia)
+    _aba_resumo_alocacao(wb, resultado, referencia, params)
 
     for cor, cor_res in sorted(resultado.get("por_cor", {}).items()):
         _aba_cor_alocacao(wb, cor, cor_res)

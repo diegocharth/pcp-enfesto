@@ -54,3 +54,29 @@ def test_aba_resumo_multiref_cabecalho_tem_params():
     _aba_resumo_multiref(wb, [sol], "GrupoX", _cfg())
     a2 = wb["Resumo"]["A2"].value
     assert "Tol. abs" in a2 and "Criterio" in a2 and "Versao" in a2
+
+
+import os, tempfile
+import openpyxl
+from engine.alocador_rolos import alocar_rolos
+from exportar.export_xlsx import exportar_alocacao
+
+
+def test_export_alocacao_mostra_parametros():
+    plano = {"mapas": [{"id": 0, "n_pecas": 4}],
+             "camadas": {"AZUL": {0: 3}}, "consumo_peca": 1.0}
+    cfg = {"margem_seguranca_enfesto_m": 0.10, "folga_incerteza_pct": 0.03,
+           "folga_incerteza_m": 0.0, "ponta_minima_util_m": 0.5}
+    res = alocar_rolos(plano, {"AZUL": [20.0]}, cfg)
+
+    with tempfile.TemporaryDirectory() as d:
+        params = {**res["params"], "versao": "2.10.1"}
+        cam = exportar_alocacao(res, "TESTE", d, params)
+        wb = openpyxl.load_workbook(cam)
+        ws = wb["Resumo Alocacao"]
+        textos = " ".join(str(c.value) for row in ws.iter_rows()
+                           for c in row if c.value is not None)
+    assert "Margem" in textos
+    assert "Folga" in textos
+    assert "Ponta minima" in textos
+    assert "2.10.1" in textos
