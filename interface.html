@@ -2098,7 +2098,7 @@ function _renderMapasAudaces() {
   var h = '<div style="font-size:12px;font-weight:600;color:var(--tx2);margin:8px 0 4px">'
         + 'Comprimento real dos mapas (Audaces) &mdash; vazio usa o calculado:</div>';
   plano.mapas.forEach(function(m) {
-    var calc = m.comp_camada_m;
+    var calc = (m.comp_calc_m !== undefined ? m.comp_calc_m : m.comp_camada_m);
     var real = window._compRealAudaces[m.id];
     h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;font-size:12px">';
     h += '<span style="width:160px">Mapa ' + m.id + ' (' + m.n_pecas + ' pc, calc ' + calc + 'm)</span>';
@@ -2134,7 +2134,7 @@ function _montarPlanoParaAlocacao() {
     (sol.mapas || []).forEach(function(m, k) {
       var np = Object.values(m).reduce(function(a,b){return a+b;}, 0);
       var _calcS=+(np*consumo).toFixed(4), _realS=(window._compRealAudaces||{})[mid];
-      mapas.push({id:mid, composicao:m, n_pecas:np, comp_camada_m:(_realS>0?+(+_realS).toFixed(4):_calcS)});
+      mapas.push({id:mid, composicao:m, n_pecas:np, comp_camada_m:(_realS>0?+(+_realS).toFixed(4):_calcS), comp_calc_m:_calcS});
       Object.keys(fl).forEach(function(cor){ addCamada(cor, (fl[cor]||[])[k]||0); });
       mid++;
     });
@@ -2153,7 +2153,7 @@ function _montarPlanoParaAlocacao() {
         Object.keys(fl).forEach(function(cor){ var v=(fl[cor]||[])[k]||0; if(v>(fpc[cor]||0)) fpc[cor]=v; });
       });
       var _calcM=+((comps[k]||0)).toFixed(4), _realM=(window._compRealAudaces||{})[mid];
-      mapas.push({id:mid, composicao:compos, n_pecas:np, comp_camada_m:(_realM>0?+(+_realM).toFixed(4):_calcM)});
+      mapas.push({id:mid, composicao:compos, n_pecas:np, comp_camada_m:(_realM>0?+(+_realM).toFixed(4):_calcM), comp_calc_m:_calcM});
       Object.keys(fpc).forEach(function(cor){ addCamada(cor, fpc[cor]); });
       mid++;
     }
