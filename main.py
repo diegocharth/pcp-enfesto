@@ -52,6 +52,24 @@ HISTORICO_FILE    = os.path.join(BASE_DIR, "dados", "historico_solucoes.json")
 CACHE_FILE        = os.path.join(BASE_DIR, "dados", "cache_planos.json")
 TEMPOS_FILE       = os.path.join(BASE_DIR, "dados", "tempos_aprendidos.json")
 
+import logging
+from logging.handlers import RotatingFileHandler
+
+def _setup_logger():
+    log_dir = os.path.join(BASE_DIR, "dados", "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    lg = logging.getLogger("pcp")
+    if lg.handlers:
+        return lg
+    lg.setLevel(logging.INFO)
+    h = RotatingFileHandler(os.path.join(log_dir, "pcp.log"),
+                            maxBytes=1_000_000, backupCount=3, encoding="utf-8")
+    h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    lg.addHandler(h)
+    return lg
+
+_log = _setup_logger()
+
 # Importações lazy para evitar erro de startup
 def _importar():
     global resolver, calcular_limites_grade, exportar_xlsx, parse_arquivo, extrair_grade_de_imagem
@@ -113,11 +131,25 @@ def carregar_cores_salvas():
             return json.load(f)
     return []
 
+def _salvar_json_atomico(caminho, data):
+    """Escreve JSON de forma atomica (.tmp + os.replace) para evitar corrupcao
+    se o processo morrer no meio da escrita."""
+    tmp = caminho + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, caminho)
+
+def _num(p, key, default, tipo=float):
+    """Coerce p[key] para tipo; em entrada invalida/ausente, devolve default
+    (evita 500 cru por texto no campo)."""
+    try:
+        return tipo(p.get(key, default))
+    except (TypeError, ValueError):
+        return default
+
 def salvar_cores_arquivo(cores):
     _ensure_dados()
-    with open(CORES_FILE, "w", encoding="utf-8") as f:
-        json.dump(sorted(set(c.upper() for c in cores if c)), f,
-                  ensure_ascii=False, indent=2)
+    _salvar_json_atomico(CORES_FILE, sorted(set(c.upper() for c in cores if c)))
 
 def carregar_params_salvos():
     if os.path.exists(PARAMS_FILE):
@@ -127,8 +159,7 @@ def carregar_params_salvos():
 
 def salvar_params(params):
     _ensure_dados()
-    with open(PARAMS_FILE, "w", encoding="utf-8") as f:
-        json.dump(params, f, ensure_ascii=False, indent=2)
+    _salvar_json_atomico(PARAMS_FILE, params)
 
 def gravar_pid():
     _ensure_dados()
@@ -185,8 +216,7 @@ def salvar_historico(fingerprint: str, mapas_vencedores: list, desvio: int):
             "desvio": desvio,
             "n_mapas": len(mapas_vencedores),
         }
-        with open(HISTORICO_FILE, "w", encoding="utf-8") as f:
-            json.dump(historico, f, ensure_ascii=False, indent=2)
+        _salvar_json_atomico(HISTORICO_FILE, historico)
 
 # ──────────────────────────────────────────────────────────────────────────
 
@@ -307,16 +337,17 @@ class Handler(BaseHTTPRequestHandler):
             else: self._send(404, {"erro": "Rota nao encontrada"})
         except Exception as e:
             import traceback
-            self._send(500, {"erro": str(e), "trace": traceback.format_exc()})
+            _log.error("Erro em %s: %s\n%s", path, e, traceback.format_exc())
+            self._send(500, {"erro": "Erro interno no servidor. Detalhes no log (dados/logs/pcp.log)."})
 
     def _calcular(self, p):
         cfg = carregar_config()
-        cfg["consumo_peca_m"]              = float(p.get("consumo", 1.0645))
-        cfg["mesa_comprimento_m"]          = float(p.get("mesa", 10.0))
-        cfg["limite_folhas_padrao"]        = int(p.get("max_folhas", 70))
-        cfg["num_opcoes_saida"]            = int(p.get("num_opcoes", 2))
-        cfg["desvio_absoluto_padrao"]      = int(p.get("tol_abs", 4))
-        cfg["desvio_percentual_padrao"]    = int(p.get("tol_pct", 20))
+        cfg["consumo_peca_m"]              = _num(p, "consumo", 1.0645, float)
+        cfg["mesa_comprimento_m"]          = _num(p, "mesa", 10.0, float)
+        cfg["limite_folhas_padrao"]        = _num(p, "max_folhas", 70, int)
+        cfg["num_opcoes_saida"]            = _num(p, "num_opcoes", 2, int)
+        cfg["desvio_absoluto_padrao"]      = _num(p, "tol_abs", 4, int)
+        cfg["desvio_percentual_padrao"]    = _num(p, "tol_pct", 20, int)
         cfg["criterio_combinacao"]         = p.get("criterio", "MIN")
 
         tamanhos   = p.get("tamanhos", ["PP","P","M","G"])
@@ -324,10 +355,11 @@ class Handler(BaseHTTPRequestHandler):
                       for cor, tms in p.get("grade", {}).items()}
         regras      = p.get("regras_especiais", {})
         referencia  = p.get("referencia", "REF")
-        timeout     = int(p.get("timeout", 120))
-        min_n_mapas = int(p.get("min_n_mapas", 1))
-        skip_combos = int(p.get("skip_combos", 0))
+        timeout     = _num(p, "timeout", 120, int)
+        min_n_mapas = _num(p, "min_n_mapas", 1, int)
+        skip_combos = _num(p, "skip_combos", 0, int)
         job_id      = p.get("job_id", "default")
+        _log.info("calcular ref=%s job=%s", referencia, job_id)
 
         # Salvar parâmetros usados para próxima sessão
         salvar_params({
@@ -496,25 +528,26 @@ class Handler(BaseHTTPRequestHandler):
     def _calcular_grupo(self, p):
         """Solver multi-ref: cada ref tem sua própria composição no enfesto combinado."""
         cfg = carregar_config()
-        cfg["mesa_comprimento_m"]          = float(p.get("mesa", 10.0))
-        cfg["limite_folhas_padrao"]        = int(p.get("max_folhas", 70))
-        cfg["num_opcoes_saida"]            = int(p.get("num_opcoes", 2))
-        cfg["desvio_absoluto_padrao"]      = int(p.get("tol_abs", 4))
-        cfg["desvio_percentual_padrao"]    = int(p.get("tol_pct", 20))
+        cfg["mesa_comprimento_m"]          = _num(p, "mesa", 10.0, float)
+        cfg["limite_folhas_padrao"]        = _num(p, "max_folhas", 70, int)
+        cfg["num_opcoes_saida"]            = _num(p, "num_opcoes", 2, int)
+        cfg["desvio_absoluto_padrao"]      = _num(p, "tol_abs", 4, int)
+        cfg["desvio_percentual_padrao"]    = _num(p, "tol_pct", 20, int)
         cfg["criterio_combinacao"]         = p.get("criterio", "MIN")
 
         tamanhos    = p.get("tamanhos", ["PP","P","M","G"])
-        timeout     = int(p.get("timeout", 120))
-        n_mapas_max = int(p.get("n_mapas_max", 7))   # branch-and-bound: teto de enfestos
+        timeout     = _num(p, "timeout", 120, int)
+        n_mapas_max = _num(p, "n_mapas_max", 7, int)   # branch-and-bound: teto de enfestos
         refs_raw    = p.get("refs", [])
         referencia  = p.get("referencia", "Grupo")
         regras      = p.get("regras_especiais", {})
         job_id      = p.get("job_id", "default")
+        _log.info("calcular_grupo ref=%s job=%s", referencia, job_id)
 
         # Calcula limites para cada ref com seu próprio consumo
         refs_data = []
         for r in refs_raw:
-            consumo = float(r.get("consumo", 1.0645))
+            consumo = _num(r, "consumo", 1.0645, float)
             grade   = {cor: {t: int(v) for t, v in tms.items()}
                        for cor, tms in r.get("grade", {}).items()}
             cfg_r = dict(cfg)
@@ -881,6 +914,7 @@ def main():
     gravar_pid()
     _servidor_ref = servidor
     print(f"PCP Enfestos v{VERSION} — http://localhost:{porta}")
+    _log.info("Servidor iniciado v%s porta %s", VERSION, porta)
     try:
         servidor.serve_forever()
     except KeyboardInterrupt:
