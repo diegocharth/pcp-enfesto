@@ -877,8 +877,13 @@ function _gradeGrupo(grupoIdxs) {
 }
 
 // ── Calcular ──────────────────────────────────────────────────────────────────
+// E1: id unico por aba (page load) -> progresso por job, sem misturar entre abas.
+var JOB_ID = (function(){
+  try { if (window.crypto && crypto.randomUUID) return crypto.randomUUID().replace(/-/g,'').slice(0,12); } catch(e){}
+  return 'j' + Date.now().toString(36) + Math.floor(Math.random()*1e6).toString(36);
+})();
 async function _drainProgresso() {
-  try{const d=await(await fetch('/progresso')).json();d.msgs.forEach(msg=>_atualizarProgresso(msg));}catch(e){}
+  try{const d=await(await fetch('/progresso?job='+JOB_ID)).json();d.msgs.forEach(msg=>_atualizarProgresso(msg));}catch(e){}
 }
 
 function montarGradeRef(ref) {
@@ -938,7 +943,7 @@ async function calcular(){
   document.getElementById('prog-etapas').innerHTML='';
   const L=m=>{logEl.textContent+=m+'\n';logEl.scrollTop=logEl.scrollHeight;};
 
-  const baseParams={mesa,max_folhas,num_opcoes,tol_abs,tol_pct,criterio,timeout,tamanhos,regras_especiais:regras};
+  const baseParams={mesa,max_folhas,num_opcoes,tol_abs,tol_pct,criterio,timeout,tamanhos,regras_especiais:regras,job_id:JOB_ID};
 
   // ── Multi-referência: testa todos os agrupamentos possíveis ──
   if(refs.length > 1){
@@ -1126,7 +1131,7 @@ async function calcular(){
     return;
   }
   const consumo=consumos[0];
-  const payload={referencia,consumo,mesa,max_folhas,num_opcoes,tol_abs,tol_pct,criterio,timeout,tamanhos,grade,regras_especiais:regras,min_n_mapas:1,skip_combos:0};
+  const payload={referencia,consumo,mesa,max_folhas,num_opcoes,tol_abs,tol_pct,criterio,timeout,tamanhos,grade,regras_especiais:regras,min_n_mapas:1,skip_combos:0,job_id:JOB_ID};
 
   // ── Retomada reutilizável: re-arma o botão Continuar a cada timeout ──
   async function continuarBusca(proxN, skipC){
@@ -1142,7 +1147,7 @@ async function calcular(){
     _calculoCancelado=false;
     _abortCtrl=new AbortController();
     document.getElementById('btn-cancel').style.display='inline-flex';
-    const pi=setInterval(async()=>{try{const d=await(await fetch('/progresso')).json();d.msgs.forEach(msg=>_atualizarProgresso(msg));}catch(e){}},600);
+    const pi=setInterval(async()=>{try{const d=await(await fetch('/progresso?job='+JOB_ID)).json();d.msgs.forEach(msg=>_atualizarProgresso(msg));}catch(e){}},600);
     try{
       const r2=await fetch('/calcular',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:_abortCtrl.signal});
       clearInterval(pi);
@@ -1198,7 +1203,7 @@ async function calcular(){
   document.getElementById('btn-cancel').style.display='inline-flex';
 
   const pollingInterval=setInterval(async()=>{
-    try{const d=await(await fetch('/progresso')).json();d.msgs.forEach(msg=>_atualizarProgresso(msg));}catch(e){}
+    try{const d=await(await fetch('/progresso?job='+JOB_ID)).json();d.msgs.forEach(msg=>_atualizarProgresso(msg));}catch(e){}
   },600);
 
   try{
