@@ -60,36 +60,28 @@ def test_comp_camada_m_explicito_tem_prioridade():
     comp_camada_m informado por mapa quando presente, ignorando n_pecas x consumo.
     """
     plano = {
-        "mapas": [{"id": 0, "composicao": {"PP": 1}, "n_pecas": 1, "comp_camada_m": 8.0}],
-        "camadas": {"SAMBA": {0: 5}},   # 5 camadas de 8.0m = 40.0m
-        "consumo_peca": 1.0,            # n_pecas*consumo daria 1.0m -- NAO deve ser usado
+        "mapas": [{"id": 0, "composicao": {"PP": 2, "P": 1, "M": 1}, "n_pecas": 4,
+                   "comp_camada_m": 8.0}],
+        "camadas": {"PRETO": {0: 5}},
+        "consumo_peca": 1.0,
     }
-    rolos = {"SAMBA": [50.0]}
-    res = alocar_rolos(plano, rolos, CONFIG_BASE)
-    sub = res["por_cor"]["SAMBA"]["rolos"][0]["sub_enfestos"][0]
-    assert sub["comp_camada"] == 8.0
-    # 5 camadas x 8.0 + margem 0.10 = 40.10m
-    assert abs(sub["comp_total"] - 40.10) < 0.001
+    res = alocar_rolos(plano, {"PRETO": [60.0]}, dict(CONFIG_BASE))
+    e = res["por_cor"]["PRETO"]["enfestos"][0]
+    assert e["comp_camada_m"] == 8.0
+    assert abs(e["tecido_usado_m"] - 40.10) < 1e-3   # 5*8.0 + 0.10
 
 
-def test_margem_por_sub_enfesto():
+def test_margem_uma_vez_por_enfesto():
     """
     1 rolo, 1 mapa, N camadas.
-    comp_total do sub-enfesto deve ser N * comp_camada + margem (so uma vez).
+    tecido_usado do enfesto deve ser N * comp_camada + margem (so uma vez).
     """
-    plano = {
-        "mapas"      : [MAPAS_BASE[0]],
-        "camadas"    : {"PRETO": {0: 10}},
-        "consumo_peca": CONSUMO,
-    }
-    rolos = {"PRETO": [100.0]}
-    res = alocar_rolos(plano, rolos, CONFIG_BASE)
-
-    sub = res["por_cor"]["PRETO"]["rolos"][0]["sub_enfestos"]
-    assert len(sub) == 1
-    expected_comp = round(10 * 4 * CONSUMO + 0.10, 4)
-    assert abs(sub[0]["comp_total"] - expected_comp) < 0.001
-    assert sub[0]["n_camadas"] == 10
+    plano = {"mapas": [{"id": 0, "composicao": {"PP": 2, "P": 1, "M": 1}, "n_pecas": 4}],
+             "camadas": {"PRETO": {0: 10}}, "consumo_peca": CONSUMO}
+    res = alocar_rolos(plano, {"PRETO": [100.0]}, dict(CONFIG_BASE))
+    e = res["por_cor"]["PRETO"]["enfestos"][0]
+    assert e["camadas_cobertas"] == 10
+    assert abs(e["tecido_usado_m"] - (10 * 4 * CONSUMO + 0.10)) < 1e-3
 
 
 # ---------------------------------------------------------------------------
@@ -127,30 +119,28 @@ def test_comp_seguro_formula_fixo():
 
 
 # ---------------------------------------------------------------------------
-# 4. Fechamento de ponta: rolo sobra espaco para mapa curto
+# 4. Reaproveitamento real: ponta de enfesto longo vira camada de enfesto curto
 # ---------------------------------------------------------------------------
 
-def test_fechamento_de_ponta():
+def test_reaproveitamento_real_mapa_longo_para_curto():
     """
-    Rolo grande. Mapa 0 (4.258m) preenche a maior parte, mas sobra espaco para
-    algumas camadas do mapa 1 (3.1935m). O alocador deve usar esse espaco.
+    Enfesto do mapa 0 (cc=7.8) deixa uma ponta grande no rolo; o mapa 1 (cc=3.9)
+    reaproveita essa ponta como camada inteira (sem emenda).
     """
-    # Rolo de 30m: comp_seguro = 29.1m
-    # mapa 0: n camadas = 6 -> 6*4.258 + 0.10 = 25.648m; restante = 29.1 - 25.648 = 3.452m
-    # mapa 1: comp_camada = 3.1935; 3.452 - 0.10(margem) = 3.352 >= 3.1935 -> 1 camada cabe
+    # Rolo unico de 24.0m: seguro = 23.28m.
+    # mapa 0 (cc=7.8), 2 camadas -> 2*7.8 + 0.10 = 15.70m usado; ponta = 7.58m.
+    # mapa 1 (cc=3.9): ponta 7.58 >= cc+margem (4.0) -> 1 camada reaproveitada.
     plano = {
-        "mapas"      : MAPAS_BASE,
-        "camadas"    : {"PRETO": {0: 6, 1: 5}},
-        "consumo_peca": CONSUMO,
-    }
-    rolos = {"PRETO": [30.0]}
-    res = alocar_rolos(plano, rolos, CONFIG_BASE)
-
-    cor_res   = res["por_cor"]["PRETO"]
-    sub_total = sum(s["n_camadas"] for s in cor_res["rolos"][0]["sub_enfestos"])
-    # Deve ter alocado pelo menos 1 camada do mapa 1 no rolo
-    alocado_m1 = cor_res["camadas_alocadas"].get(1, 0)
-    assert alocado_m1 >= 1, f"Esperava ao menos 1 camada do mapa 1, got {alocado_m1}"
+        "mapas": [{"id": 0, "composicao": {"M": 6}, "n_pecas": 6},
+                  {"id": 1, "composicao": {"P": 3}, "n_pecas": 3}],
+        "camadas": {"PRETO": {0: 2, 1: 1}}, "consumo_peca": 1.3,
+    }  # cc0 = 7.8, cc1 = 3.9
+    res = alocar_rolos(plano, {"PRETO": [24.0]}, dict(CONFIG_BASE))
+    cr = res["por_cor"]["PRETO"]
+    assert [e["mapa_id"] for e in cr["enfestos"]] == [0, 1]
+    assert cr["reaproveitamento"]["camadas_reaproveitadas"] >= 1
+    e1 = [e for e in cr["enfestos"] if e["mapa_id"] == 1][0]
+    assert any(f["reaproveitada"] for f in e1["fontes"])
 
 
 # ---------------------------------------------------------------------------
@@ -159,14 +149,9 @@ def test_fechamento_de_ponta():
 
 def test_ponta_estoque():
     """Ponta >= ponta_minima_util_m deve ser classificada como estoque."""
-    plano = {
-        "mapas"      : [MAPAS_BASE[0]],
-        "camadas"    : {"PRETO": {0: 2}},
-        "consumo_peca": CONSUMO,
-    }
-    # comp_seguro 50m * 0.97 = 48.5m; alocado = 2*4.258 + 0.10 = 8.616m; ponta = 39.884m >= 0.5
-    rolos = {"PRETO": [50.0]}
-    res = alocar_rolos(plano, rolos, CONFIG_BASE)
+    plano = {"mapas": [{"id": 0, "composicao": {"P": 4}, "n_pecas": 4}],
+             "camadas": {"PRETO": {0: 1}}, "consumo_peca": 1.0}  # cc=4.0
+    res = alocar_rolos(plano, {"PRETO": [10.0]}, dict(CONFIG_BASE))
     rolo = res["por_cor"]["PRETO"]["rolos"][0]
     assert rolo["ponta_classe"] == "estoque"
     assert rolo["ponta_m"] >= CONFIG_BASE["ponta_minima_util_m"]
@@ -174,17 +159,11 @@ def test_ponta_estoque():
 
 def test_ponta_refugo():
     """Ponta < ponta_minima_util_m deve ser classificada como refugo."""
-    # Rolo ajustado para que a ponta seja muito pequena
-    # comp_camada = 4.258; 1 camada + margem = 4.358m
-    # Rolo de 4.50m; comp_seguro = 4.365m (4.50 * 0.97)
-    # ponta = 4.365 - 4.358 = 0.007m < 0.5m -> refugo
-    plano = {
-        "mapas"      : [MAPAS_BASE[0]],
-        "camadas"    : {"PRETO": {0: 1}},
-        "consumo_peca": CONSUMO,
-    }
-    rolos = {"PRETO": [4.50]}
-    res = alocar_rolos(plano, rolos, CONFIG_BASE)
+    plano = {"mapas": [{"id": 0, "composicao": {"P": 4}, "n_pecas": 4}],
+             "camadas": {"PRETO": {0: 2}}, "consumo_peca": 1.0}  # cc=4.0
+    # Rolo nominal 8.5m -> seguro = 8.5 * 0.97 = 8.245m.
+    # 2 camadas usam 2*4.0 + 0.10 (margem) = 8.10m; ponta = 8.245 - 8.10 = 0.145m < 0.5 -> refugo.
+    res = alocar_rolos(plano, {"PRETO": [8.5]}, dict(CONFIG_BASE))
     rolo = res["por_cor"]["PRETO"]["rolos"][0]
     assert rolo["ponta_classe"] == "refugo"
 
@@ -240,26 +219,16 @@ def test_camada_maior_que_rolo():
 
 
 # ---------------------------------------------------------------------------
-# 8. Regra dura: sum(comp_total sub-enfestos) <= comp_seguro para todo rolo
+# 8. Regra dura: usado_m <= seguro_m para todo rolo; ponta nunca negativa
 # ---------------------------------------------------------------------------
 
 def test_regra_dura_nunca_violada():
-    """Soma dos comp_total dos sub-enfestos nunca pode exceder comp_seguro do rolo."""
-    plano = {
-        "mapas"      : MAPAS_BASE,
-        "camadas"    : {"PRETO": {0: 8, 1: 6}, "BRANCO": {0: 4, 1: 3}},
-        "consumo_peca": CONSUMO,
-    }
-    rolos = {"PRETO": [50.0, 30.0, 20.0], "BRANCO": [40.0, 15.0]}
-    res = alocar_rolos(plano, rolos, CONFIG_BASE)
-
-    for cor, cor_res in res["por_cor"].items():
-        for rolo in cor_res["rolos"]:
-            soma_sub = sum(s["comp_total"] for s in rolo["sub_enfestos"])
-            assert soma_sub <= rolo["comprimento_seguro_m"] + 0.001, (
-                f"{cor} rolo {rolo['indice']}: "
-                f"soma subs {soma_sub:.4f}m > seguro {rolo['comprimento_seguro_m']:.4f}m"
-            )
+    """O tecido usado em cada rolo nunca pode exceder o comp_seguro; ponta >= 0."""
+    plano = {"mapas": MAPAS_BASE, "camadas": {"PRETO": {0: 8, 1: 6}}, "consumo_peca": CONSUMO}
+    res = alocar_rolos(plano, {"PRETO": [30.0, 25.0, 20.0]}, dict(CONFIG_BASE))
+    for rolo in res["por_cor"]["PRETO"]["rolos"]:
+        assert rolo["usado_m"] <= rolo["seguro_m"] + 1e-3
+        assert rolo["ponta_m"] >= -1e-9
 
 
 # ---------------------------------------------------------------------------
@@ -365,54 +334,26 @@ def test_resultado_inclui_bloco_params():
     assert p["ponta_minima_util_m"] == 0.5
 
 
-def test_alocacao_anexa_sugestoes_corte_separado():
-    plano = {
-        "mapas": [{"id": 0, "n_pecas": 6, "composicao": {"P": 3, "M": 3}}],
-        "camadas": {"AZUL": {0: 5}},
-        "consumo_peca": 1.3,
-    }
-    cfg = dict(CONFIG_BASE)
-    cfg["folga_incerteza_pct"] = 0.03
-    res = alocar_rolos(plano, {"AZUL": [30.0]}, cfg)
-    cr = res["por_cor"]["AZUL"]
-    assert "sugestoes_corte_separado" in cr
-    assert "sugestoes_corte_total" in res["resumo_geral"]
-
-
-def test_sem_rolos_tem_chaves_vazias():
-    plano = {"mapas": [{"id": 0, "n_pecas": 4, "composicao": {"P": 4}}],
-             "camadas": {"AZUL": {0: 2}}, "consumo_peca": 1.0}
-    res = alocar_rolos(plano, {}, dict(CONFIG_BASE))
-    assert res["por_cor"]["AZUL"]["sugestoes_corte_separado"] == []
-
-
-def test_sobras_por_rolo_e_consolidado():
-    """C3: cada cor expoe sobras_por_rolo; resumo_geral expoe sobras_consolidado."""
-    plano = {"mapas": [{"id": 0, "n_pecas": 4, "composicao": {"P": 4}}],
+def test_rolos_resumo_e_consolidado():
+    """C3: cada cor expoe o resumo por rolo; resumo_geral expoe sobras_consolidado."""
+    plano = {"mapas": [{"id": 0, "composicao": {"P": 4}, "n_pecas": 4}],
              "camadas": {"AZUL": {0: 2}}, "consumo_peca": 1.0}
     res = alocar_rolos(plano, {"AZUL": [20.0]}, dict(CONFIG_BASE))
     cr = res["por_cor"]["AZUL"]
-    assert "sobras_por_rolo" in cr and len(cr["sobras_por_rolo"]) == 1
-    s = cr["sobras_por_rolo"][0]
-    for k in ("rolo_indice", "nominal_m", "seguro_m", "usado_m", "ponta_m",
-              "ponta_classe", "reaproveitada_em"):
-        assert k in s
+    assert len(cr["rolos"]) == 1
+    r0 = cr["rolos"][0]
+    for k in ("rolo_indice", "nominal_m", "seguro_m", "usado_m", "ponta_m", "ponta_classe"):
+        assert k in r0
     assert "sobras_consolidado" in res["resumo_geral"]
     assert "AZUL" in res["resumo_geral"]["sobras_consolidado"]
 
 
-def test_export_alocacao_tem_sobras_e_corte():
-    import tempfile, openpyxl
-    from exportar.export_xlsx import exportar_alocacao
-    plano = {"mapas": [{"id": 0, "n_pecas": 6, "composicao": {"P": 3, "M": 3}}],
-             "camadas": {"AZUL": {0: 5}}, "consumo_peca": 1.3}
-    cfg = dict(CONFIG_BASE); cfg["folga_incerteza_pct"] = 0.03
-    res = alocar_rolos(plano, {"AZUL": [30.0]}, cfg)
-    with tempfile.TemporaryDirectory() as d:
-        cam = exportar_alocacao(res, "TESTE", d, {**res.get("params", {}), "versao": "x"})
-        wb = openpyxl.load_workbook(cam)
-        ws = [s for s in wb.sheetnames if s.startswith("Rolos")][0]
-        textos = " ".join(str(c.value) for row in wb[ws].iter_rows()
-                           for c in row if c.value is not None)
-    assert "Sobras por rolo" in textos
-    assert "Corte separado sugerido" in textos
+def test_resumo_geral_tem_reaproveitamento():
+    plano = {"mapas": [{"id": 0, "composicao": {"M": 6}, "n_pecas": 6},
+                       {"id": 1, "composicao": {"P": 3}, "n_pecas": 3}],
+             "camadas": {"PRETO": {0: 2, 1: 1}}, "consumo_peca": 1.3}
+    res = alocar_rolos(plano, {"PRETO": [24.0]}, dict(CONFIG_BASE))
+    rg = res["resumo_geral"]
+    assert "camadas_reaproveitadas_total" in rg
+    assert "tecido_economizado_total_m" in rg
+    assert "sugestoes_corte_total" not in rg
