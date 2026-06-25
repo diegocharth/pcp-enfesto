@@ -71,6 +71,114 @@ def _comp_seguro(nominal, config):
     return max(0.0, float(nominal) * (1.0 - folga_pct))
 
 
+def _alocar_cor(demanda, comp_camada_por_id, rolos_cor, config):
+    """Aloca o tecido de UMA cor pelo modelo enfesto-por-enfesto com
+    reaproveitamento de ponta (so camada inteira, sem emenda, margem 1x/enfesto,
+    greedy mapa-longo-primeiro). Funcao pura."""
+    margem    = float(config.get("margem_seguranca_enfesto_m", 0.10))
+    ponta_min = float(config.get("ponta_minima_util_m", 0.5))
+    _EPS = 1e-4
+
+    # Estado por rolo-raiz: peca atual no pool (comprimento), usado acumulado.
+    rolos = []   # [{rolo_indice, nominal_m, seguro_m, restante_m, usado_m, origem, enfesto_origem}]
+    for i, nom in enumerate(rolos_cor):
+        seguro = round(_comp_seguro(nom, config), 6)
+        rolos.append({
+            "rolo_indice": i + 1, "nominal_m": float(nom), "seguro_m": seguro,
+            "restante_m": seguro, "usado_m": 0.0,
+            "origem": "rolo", "enfesto_origem": None,
+        })
+
+    camadas_alocadas = {mid: 0 for mid in demanda}
+    enfestos = []
+
+    # Ordem de corte: mapa mais longo primeiro; empate -> maior demanda.
+    ordem = sorted(demanda.keys(),
+                   key=lambda m: (-comp_camada_por_id.get(m, 0.0), -demanda[m]))
+
+    for mid in ordem:
+        cc = float(comp_camada_por_id.get(mid, 0.0))
+        K  = int(demanda[mid])
+        cobertas = 0
+        fontes = []
+        if cc > 0 and K > 0:
+            # Pool ordenado: pontas antes de rolos novos; depois maior restante.
+            disponiveis = [r for r in rolos if r["restante_m"] > 0]
+            disponiveis.sort(key=lambda r: (r["origem"] == "rolo", -r["restante_m"]))
+            # Fonte primaria = primeiro pedaco com restante >= cc + margem.
+            primaria = next((r for r in disponiveis
+                             if r["restante_m"] + _EPS >= cc + margem), None)
+            if primaria is not None:
+                for r in disponiveis:
+                    if cobertas >= K:
+                        break
+                    eh_primaria = (r is primaria)
+                    overhead = margem if eh_primaria else 0.0
+                    cap = int(math.floor((r["restante_m"] - overhead + _EPS) / cc))
+                    if cap <= 0:
+                        continue
+                    k = min(cap, K - cobertas)
+                    consumo = k * cc + overhead
+                    fontes.append({
+                        "tipo": r["origem"], "rolo_indice": r["rolo_indice"],
+                        "enfesto_origem": r["enfesto_origem"],
+                        "n_camadas": k, "comp_camada_m": round(cc, 4),
+                        "comp_usado_m": round(consumo, 4),
+                        "primaria": eh_primaria, "reaproveitada": r["origem"] == "ponta",
+                    })
+                    r["restante_m"] = round(r["restante_m"] - consumo, 6)
+                    r["usado_m"]    = round(r["usado_m"] + consumo, 6)
+                    r["origem"] = "ponta"          # apos uso, vira ponta reaproveitavel
+                    r["enfesto_origem"] = mid
+                    cobertas += k
+        camadas_alocadas[mid] = cobertas
+        deficit_e = K - cobertas
+        enfestos.append({
+            "mapa_id": mid, "comp_camada_m": round(cc, 4),
+            "camadas_necessarias": K, "camadas_cobertas": cobertas,
+            "camadas_em_deficit": deficit_e, "margem_m": round(margem, 4),
+            "tecido_usado_m": round(cobertas * cc + (margem if cobertas > 0 else 0.0), 4),
+            "tecido_a_comprar_m": round(deficit_e * cc, 4),
+            "fontes": fontes,
+        })
+
+    # Resumo por rolo (estado final).
+    rolos_out, ponta_est, refugo_real, nom_total = [], 0.0, 0.0, 0.0
+    for r in rolos:
+        ponta = round(max(0.0, r["restante_m"]), 4)
+        classe = "estoque" if ponta >= ponta_min else "refugo"
+        rolos_out.append({
+            "rolo_indice": r["rolo_indice"], "nominal_m": round(r["nominal_m"], 4),
+            "seguro_m": round(r["seguro_m"], 4),
+            "usado_m": round(r["seguro_m"] - ponta, 4),
+            "ponta_m": ponta, "ponta_classe": classe,
+        })
+        nom_total += r["nominal_m"]
+        if classe == "estoque":
+            ponta_est += ponta
+        else:
+            refugo_real += ponta
+
+    camadas_def = {mid: (int(demanda[mid]) - camadas_alocadas[mid])
+                   for mid in demanda if int(demanda[mid]) - camadas_alocadas[mid] > 0}
+    reap_camadas = sum(f["n_camadas"] for e in enfestos for f in e["fontes"]
+                       if f["reaproveitada"])
+    reap_tecido  = sum(f["n_camadas"] * f["comp_camada_m"] for e in enfestos
+                       for f in e["fontes"] if f["reaproveitada"])
+    return {
+        "enfestos": enfestos, "rolos": rolos_out,
+        "camadas_alocadas": camadas_alocadas, "camadas_em_deficit": camadas_def,
+        "tecido_usado_m": round(sum(e["tecido_usado_m"] for e in enfestos), 3),
+        "tecido_a_comprar_m": round(sum(e["tecido_a_comprar_m"] for e in enfestos), 3),
+        "ponta_estoque_total_m": round(ponta_est, 3),
+        "refugo_real_m": round(refugo_real, 3),
+        "refugo_percentual": round(100 * refugo_real / nom_total, 2) if nom_total > 0 else 0.0,
+        "n_sub_enfestos": sum(1 for e in enfestos if e["camadas_cobertas"] > 0),
+        "reaproveitamento": {"camadas_reaproveitadas": reap_camadas,
+                             "tecido_economizado_m": round(reap_tecido, 3)},
+    }
+
+
 def _validar_entradas(plano, config):
     """Valida parametros obrigatorios. Lanca ValueError com mensagem clara."""
     consumo = float(plano.get("consumo_peca", 0))
