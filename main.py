@@ -414,8 +414,9 @@ class Handler(BaseHTTPRequestHandler):
             logs.append(msg)
             _add_progresso(job_id, msg)
 
-        # Cálculo sob lock: injeção de históricos + resolver + leitura dos atributos
-        # de retomada formam uma seção crítica (estado global compartilhado).
+        # Cálculo sob lock: serializa para nao competir por CPU (single-user desktop).
+        # O estado de retomada e os mapas historicos agora passam por parametros
+        # (resume_out / historicos), nao mais por estado global.
         _t0 = time.time()
         if not _calc_lock.acquire(blocking=False):
             _add_progresso(job_id, "Aguardando outro calculo terminar (na fila)...")
@@ -585,7 +586,8 @@ class Handler(BaseHTTPRequestHandler):
             _add_progresso(job_id, msg)
 
         # Mesmo lock do cálculo single-ref: serializa para não interleavar progresso
-        # nem competir pelo estado global compartilhado do solver.
+        # nem competir por CPU. O estado de retomada agora passa por parametro
+        # (resume_out), nao mais por estado global do solver.
         _t0 = time.time()
         if not _calc_lock.acquire(blocking=False):
             _add_progresso(job_id, "Aguardando outro calculo terminar (na fila)...")
