@@ -348,19 +348,6 @@ input:focus,select:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 2p
   <div id="aloc-stale" style="display:none;margin-top:10px;background:var(--wnb,#fff8e1);border:1px solid var(--wn,#e0b000);border-radius:var(--r);padding:8px 12px;color:var(--wn,#8a6d00);font-size:12px">
     &#9888; Um parametro mudou. Refaca a alocacao para atualizar.
   </div>
-  <!-- ESTOQUE DE PONTAS (entre OPs) -->
-  <div style="margin-top:10px;border-top:1px solid var(--bd1);padding-top:8px">
-    <label style="font-size:12px;cursor:pointer">
-      <input type="checkbox" id="aloc-incluir-estoque"> Incluir estoque de pontas nesta alocacao
-    </label>
-    <details style="margin-top:6px">
-      <summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--tx2)">Estoque de pontas</summary>
-      <div id="aloc-estoque-lista" style="font-size:12px;margin-top:6px"></div>
-      <div class="btn-row" style="margin-top:6px">
-        <button type="button" class="btn btn-s btn-sm" onclick="_guardarEstoquePontas()">Guardar pontas reaproveitaveis desta alocacao</button>
-      </div>
-    </details>
-  </div>
   <div id="aloc-resultado" style="display:none;margin-top:12px"></div>
 </div>
 
@@ -408,7 +395,6 @@ window.onload = async () => {
   await carregarDados();
   addRef();
   try { atualizarCoresAlocacao(); } catch(e) {}
-  try { _carregarEstoque(); } catch(e) {}
   try { setTimeout(verificarUpdate, 3000); } catch(e) {}
   try { const d = await (await fetch('/versao')).json(); document.getElementById('ver-sp').textContent='v'+d.versao; } catch(e){}
   try { const d = await (await fetch('/config_pub')).json();
@@ -2019,57 +2005,6 @@ function adicionarCorManual() {
 }
 
 
-// Frente G: estoque de pontas entre OPs
-window._estoquePontas = window._estoquePontas || {};
-
-async function _carregarEstoque() {
-  try {
-    var d = await (await fetch('/estoque_pontas')).json();
-    window._estoquePontas = d.estoque || {};
-  } catch(e) { window._estoquePontas = {}; }
-  _renderEstoque();
-}
-
-function _renderEstoque() {
-  var div = document.getElementById('aloc-estoque-lista');
-  if (!div) return;
-  var est = window._estoquePontas || {};
-  var cores = Object.keys(est);
-  if (!cores.length) { div.innerHTML = '<span style="color:var(--tx3)">Estoque vazio.</span>'; return; }
-  var h = '';
-  cores.forEach(function(cor) {
-    h += '<div style="margin-bottom:4px"><b>' + cor + ':</b> ';
-    h += (est[cor] || []).map(function(e) {
-      return '<span style="display:inline-block;margin:2px;padding:2px 6px;background:var(--sf2);border-radius:var(--r)">'
-        + e.comprimento_m + 'm'
-        + (e.origem ? ' <span style="color:var(--tx3)">(' + e.origem + ')</span>' : '')
-        + ' <a href="#" onclick="_removerPontaEstoque(\'' + cor + '\',\'' + e.id + '\');return false;" '
-        + 'style="color:var(--er);text-decoration:none">x</a></span>';
-    }).join('');
-    h += '</div>';
-  });
-  div.innerHTML = h;
-}
-
-async function _guardarEstoquePontas() {
-  if (!window._ultimaAlocacao) { alert('Faca uma alocacao primeiro.'); return; }
-  var body = {acao: 'guardar', resultado: window._ultimaAlocacao.data,
-              origem: window._ultimaAlocacao.referencia || ''};
-  var d = await (await fetch('/estoque_pontas', {method: 'POST',
-    headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})).json();
-  window._estoquePontas = d.estoque || {};
-  _renderEstoque();
-  alert((d.adicionadas || 0) + ' ponta(s) guardada(s) no estoque.');
-}
-
-async function _removerPontaEstoque(cor, id) {
-  var d = await (await fetch('/estoque_pontas', {method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({acao: 'remover', cor: cor, id: id})})).json();
-  window._estoquePontas = d.estoque || {};
-  _renderEstoque();
-}
-
 async function iniciarAlocacao() {
   var st = document.getElementById('aloc-st');
   var resDiv = document.getElementById('aloc-resultado');
@@ -2081,15 +2016,6 @@ async function iniciarAlocacao() {
     var vals = (_rolosPorCor[cor] || []).filter(function(n) { return n > 0; });
     if (vals.length) rolos[cor] = vals;
   });
-
-  var incl = document.getElementById('aloc-incluir-estoque');
-  if (incl && incl.checked) {
-    var est = window._estoquePontas || {};
-    Object.keys(est).forEach(function(cor) {
-      var extras = (est[cor] || []).map(function(e) { return +e.comprimento_m; }).filter(function(n) { return n > 0; });
-      if (extras.length) rolos[cor] = (rolos[cor] || []).concat(extras);
-    });
-  }
 
   if (!Object.keys(rolos).length) { st.textContent = 'Informe os rolos por cor antes de alocar.'; return; }
 

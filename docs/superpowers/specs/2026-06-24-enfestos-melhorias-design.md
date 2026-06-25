@@ -284,7 +284,7 @@ Manter `_calc_lock` (serializa o estado global do solver — **não** mover `res
 
 ## 8. Decisões confirmadas (2026-06-24)
 
-1. **F1 (estoque de pontas entre OPs): DEPOIS.** Nesta rodada, só o corte separado **dentro da OP atual** (Frente C1). O inventário persistente entre OPs fica para uma rodada futura.
+1. **F1 (estoque de pontas entre OPs): DESCARTADO (decisão do dono, 2026-06-25).** Nesta rodada, só o corte separado **dentro da OP atual** (Frente C1). O inventário persistente entre OPs chegou a ser implementado (Frente G) mas foi **revertido a pedido do dono**: ele não quer controlar estoque de pontas para planos futuros — a ponta é para reaproveitar **só no mesmo plano de corte**. NÃO reintroduzir.
 2. **Itens "Agora" da auditoria: TODOS entram** — viram a **Frente F**: refatorar estado global do solver, logs persistentes, escrita atômica, validação de entrada e hash no auto-update.
 3. **Frente D: remover tudo morto** — `custo_desvio` + `peso_desvio_por_tamanho` + `tamanhos_prioritarios_positivo`. A regra "G não cresce" permanece via limites de tolerância (G máx=0).
 4. **Excel: substituir "Score otimização" por "Desvio relativo"** (métrica real, alimentada pela Frente D2).

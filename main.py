@@ -35,7 +35,7 @@ Changelog:
   v2.0.0 - Interface HTML, solver otimizado
 """
 
-import json, os, sys, threading, webbrowser, base64, time, signal, subprocess, uuid
+import json, os, sys, threading, webbrowser, base64, time, signal, subprocess
 import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from urllib.parse import urlparse
@@ -51,7 +51,6 @@ MAPA_CORES_FILE   = os.path.join(BASE_DIR, "dados", "mapa_cores.json")
 HISTORICO_FILE    = os.path.join(BASE_DIR, "dados", "historico_solucoes.json")
 CACHE_FILE        = os.path.join(BASE_DIR, "dados", "cache_planos.json")
 TEMPOS_FILE       = os.path.join(BASE_DIR, "dados", "tempos_aprendidos.json")
-ESTOQUE_PONTAS_FILE = os.path.join(BASE_DIR, "dados", "estoque_pontas.json")
 
 import logging
 from logging.handlers import RotatingFileHandler
@@ -161,47 +160,6 @@ def carregar_params_salvos():
 def salvar_params(params):
     _ensure_dados()
     _salvar_json_atomico(PARAMS_FILE, params)
-
-def carregar_estoque_pontas():
-    if os.path.exists(ESTOQUE_PONTAS_FILE):
-        try:
-            with open(ESTOQUE_PONTAS_FILE, encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
-
-def salvar_estoque_pontas(estoque):
-    _ensure_dados()
-    _salvar_json_atomico(ESTOQUE_PONTAS_FILE, estoque)
-
-def _estoque_adicionar(estoque, resultado, origem="", agora=""):
-    """Funcao pura: devolve (novo_estoque, n_adicionadas) acrescentando as
-    pontas reaproveitaveis (ponta_classe=='estoque', ponta_m>0) do resultado."""
-    novo = {c: list(v) for c, v in (estoque or {}).items()}
-    n = 0
-    for cor, cr in (resultado.get("por_cor") or {}).items():
-        linhas = cr.get("sobras_por_rolo") or cr.get("rolos") or []
-        for r in linhas:
-            if r.get("ponta_classe") == "estoque" and float(r.get("ponta_m") or 0) > 0:
-                novo.setdefault(cor, [])
-                novo[cor].append({
-                    "id": uuid.uuid4().hex[:8],
-                    "comprimento_m": round(float(r["ponta_m"]), 3),
-                    "origem": origem or "",
-                    "data": agora or "",
-                })
-                n += 1
-    return novo, n
-
-def _estoque_remover(estoque, cor, ponta_id):
-    """Funcao pura: devolve o estoque sem a ponta de id `ponta_id` na cor."""
-    novo = {c: list(v) for c, v in (estoque or {}).items()}
-    if cor in novo:
-        novo[cor] = [e for e in novo[cor] if e.get("id") != ponta_id]
-        if not novo[cor]:
-            del novo[cor]
-    return novo
 
 def gravar_pid():
     _ensure_dados()
@@ -355,8 +313,6 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/aprendizado":
             # Tempos medianos aprendidos por classe de problema (para a ETA realista).
             self._send(200, {"tempos": _CACHE.estimativas()})
-        elif path == "/estoque_pontas":
-            self._send(200, {"estoque": carregar_estoque_pontas()})
         else:
             self.send_response(404); self.end_headers()
 
@@ -379,7 +335,6 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/importar_rolos":     self._importar_rolos(json.loads(body))
             elif path == "/salvar_mapa_cor":    self._salvar_mapa_cor(json.loads(body))
             elif path == "/sinalizar_update":   self._sinalizar_update(json.loads(body))
-            elif path == "/estoque_pontas":      self._estoque_pontas(json.loads(body))
             else: self._send(404, {"erro": "Rota nao encontrada"})
         except Exception as e:
             import traceback
@@ -765,28 +720,6 @@ class Handler(BaseHTTPRequestHandler):
 
         resultado = alocar_rolos_fn(plano, rolos, cfg)
         self._send(200, resultado)
-
-    def _estoque_pontas(self, p):
-        import time
-        acao = p.get("acao", "")
-        est = carregar_estoque_pontas()
-        if acao == "guardar":
-            agora = time.strftime("%Y-%m-%d %H:%M")
-            est, n = _estoque_adicionar(est, p.get("resultado", {}),
-                                        origem=p.get("origem", ""), agora=agora)
-            salvar_estoque_pontas(est)
-            self._send(200, {"ok": True, "adicionadas": n, "estoque": est})
-        elif acao == "remover":
-            est = _estoque_remover(est, p.get("cor", ""), p.get("id", ""))
-            salvar_estoque_pontas(est)
-            self._send(200, {"ok": True, "estoque": est})
-        elif acao == "limpar":
-            cor = p.get("cor")
-            est = {} if not cor else {c: v for c, v in est.items() if c != cor}
-            salvar_estoque_pontas(est)
-            self._send(200, {"ok": True, "estoque": est})
-        else:
-            self._send(400, {"erro": "acao invalida (use guardar/remover/limpar)."})
 
     def _baixar_arquivo(self):
         """Serve um arquivo de dados/resultados para download direto no browser."""
