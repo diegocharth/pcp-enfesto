@@ -230,10 +230,11 @@ _progressos = {}                 # job_id -> list[str]
 _progresso_lock = threading.Lock()
 _PROGRESSO_MAX_JOBS = 50          # teto p/ nao crescer sem limite (GC simples)
 
-# Serializa cálculos: o solver usa estado global compartilhado (mapas históricos
-# injetados + atributos de retomada na função resolver). ThreadingHTTPServer atende
-# requisições concorrentes, então sem este lock dois cálculos simultâneos corromperiam
-# o estado um do outro. Mantido durante todo o cálculo (single-user desktop).
+# Serializa cálculos por POLÍTICA (single-user desktop, CPU-bound): dois cálculos
+# simultâneos só competiriam por CPU e deixariam ambos mais lentos. O solver NÃO usa
+# mais estado global compartilhado (F-1: históricos e estado de retomada passam por
+# parâmetros historicos=/resume_out=), então o lock não é mais necessário para
+# correção — é uma escolha de serialização. Mantido durante todo o cálculo.
 _calc_lock = threading.Lock()
 
 def _reset_job(job_id):
