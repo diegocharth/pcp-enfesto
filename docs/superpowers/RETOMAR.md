@@ -6,9 +6,9 @@ Nota de handoff: onde o projeto está e como continuar. (Resumo durável; o deta
 - **Roadmap A–F + F-1 concluído e mergeado em `main`. Frente C REFORMULADA (alocador "enfesto por enfesto").** **105 testes pytest passando.** Backend verificado AO VIVO incl. `POST /alocar_rolos` real (enfesto-por-enfesto + reaproveitamento OK).
 - **Frente C REFORMULADA (2026-06-25):** o "corte separado" pós-alocação foi **substituído** por um alocador **"enfesto por enfesto"** com reaproveitamento de ponta. Regra do dono: **só camada inteira, várias pontas OK, sem emenda, margem 1x/enfesto**; o corte separado antigo (sugeria cortes parciais) era inútil sob essa regra. `engine/reaproveitamento.py` foi removido; o reaproveitamento agora vive nas `fontes` de cada enfesto. Spec/plano: `docs/superpowers/{specs,plans}/2026-06-25-alocador-enfesto-por-enfesto*`.
 - **Frente G (estoque de pontas ENTRE OPs) foi construída e depois REVERTIDA a pedido do dono** (commits `025a15f`+`daf938b` revertidos): o dono NÃO quer controlar estoque de pontas para planos futuros — a ponta é reaproveitada **só dentro do mesmo plano de corte**. Não reintroduzir estoque persistente entre OPs.
-- **Branch:** `main` (VERSION 2.10.1), working tree limpo, em sincronia com `origin/main`.
-- **Release v2.11.0 STAGED no branch `release-2.11.0`** (VERSION bumpado + changelog, já no GitHub) — pronta para deploy com um comando após o smoke-test. Ver "Publicar/deploy".
-- **A fábrica NÃO foi atualizada** (main está em VERSION 2.10.1; o release.yml só dispara com VERSION alterado em `main`).
+- **Branch:** `main` (VERSION **2.11.0**, commit `d189d9a`), working tree limpo, em sincronia com `origin/main`. A branch de staging `release-2.11.0` já foi mergeada (fast-forward) e removida.
+- **DEPLOYADO em 2026-06-25 (a pedido do dono):** o push da `main` com VERSION 2.11.0 disparou o `release.yml` → **Release v2.11.0 publicada no GitHub** (tag `v2.11.0` em `d189d9a`). A fábrica auto-atualiza na próxima abertura via `launcher.py`/`updater.py`.
+- **Ressalva do auto-update:** o fluxo automático só funciona se a máquina da fábrica já estiver em **≥ 2.10.1** (a v2.10.1 corrigiu o VBS→launcher). Se ainda estiver numa versão anterior, precisa de **UMA** atualização manual (recopiar a pasta / re-rodar INSTALAR / editar a linha do VBS); daí em diante 2.11.0 e futuras fluem sozinhas.
 
 ## O que cada frente entregou
 - **A** — download duplicado corrigido; resultado some ao mudar parâmetro; todos os parâmetros no Excel (single/multi-ref/alocação).
@@ -26,25 +26,17 @@ python -m pytest tests/ -q          # esperado: 105 passed (~2,5 min)
 python main.py                       # abre o servidor na 5050; teste a UI no navegador
 ```
 
-## Smoke-test da UI (recomendado ANTES do push — não foi testado em navegador)
+## Smoke-test da UI (v2.11.0 já deployada — valide no navegador; a UI foi revisada por código, não testada em navegador daqui)
 1. Calcular um plano → conferir que o resultado some ao mudar um parâmetro e volta ao recalcular.
 2. Exportar → conferir **1 só arquivo** no Downloads e que o Excel mostra todos os parâmetros.
 3. Alocação: digitar rolos nas **células** (Tab/colar); rodar; conferir a seção **por enfesto** com **fontes** (↻ quando a ponta foi reaproveitada de outro enfesto), **sobras por rolo** e os KPIs **"Reaproveitado" / "Tecido economizado"**; preencher um **comprimento real do Audaces** e re-alocar; clicar **Imprimir relatório** (PDF).
 4. Tolerância especial: testar um limite em **`%`** (ex.: PP máx `10%`) e ver no Excel.
 5. Abrir **2 abas** e calcular nas duas → a 2ª mostra "na fila" e o progresso não se mistura.
 
-## Publicar / deploy para a fábrica
-A release **v2.11.0 está STAGED** no branch `release-2.11.0` (VERSION 2.10.1 → 2.11.0 + changelog; **inclui a Frente C reformulada / alocador enfesto-por-enfesto**; já no GitHub). `main` segue em 2.10.1, então **nada foi deployado** ainda. O `release.yml` só dispara o Release (que a fábrica auto-atualiza) quando um push em **`main`** altera o arquivo `VERSION`.
+## Publicar / deploy para a fábrica — JÁ FEITO (v2.11.0, 2026-06-25)
+A `main` foi empurrada com VERSION 2.11.0 (commit `d189d9a`), disparando o `release.yml` → **Release v2.11.0 publicada** no GitHub (tag `v2.11.0`). A fábrica auto-atualiza na próxima abertura (`launcher.py`→`updater.py` puxam a Release mais nova). **Ressalva:** o auto-update só flui se a máquina já estiver em **≥ 2.10.1** (a v2.10.1 corrigiu o VBS→launcher); senão, UMA atualização manual primeiro (recopiar a pasta / re-rodar INSTALAR / editar a linha do VBS).
 
-**Deploy — UM comando, DEPOIS de validar a UI no navegador:**
-```
-cd "C:\Users\CHARTH DIEGO\Desktop\CLAUDE\ENFESTOS\pcp_enfestos"
-git checkout main && git merge release-2.11.0 && git push
-# -> push em main com VERSION=2.11.0 dispara o release.yml -> Release v2.11.0
-#    -> a fabrica auto-atualiza na proxima abertura.
-```
-Por que NÃO foi disparado agora: a UI não foi testada em navegador e o push de VERSION deploya direto para os operadores — você dispara quando estiver satisfeito.
-(Lembrete: a v2.10.1 corrigiu o VBS→launcher; a fábrica precisa receber UMA atualização manual antes do auto-update fluir sozinho.)
+**Para a PRÓXIMA release:** bumpar `VERSION` (+ changelog em main.py/CLAUDE.md) e `git push` na `main` — isso por si só dispara o `release.yml` (não precisa de branch de staging). Se quiser revisar antes de publicar, trabalhe num branch e só altere o `VERSION` ao mergear na `main`.
 
 ## Para retomar trabalho com o Claude Code
 - A memória do projeto (`project_enfestos.md`) já tem este estado — uma nova sessão recupera o contexto.
