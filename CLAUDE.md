@@ -11,7 +11,7 @@ Roda como servidor Python local na porta 5050. Interface HTML no navegador. Sem 
 
 **Stack:** Python 3.10+ · HTML/CSS/JS vanilla · openpyxl · pdfplumber · Windows 10/11
 
-**Versão atual:** 2.8.0
+**Versão atual:** 2.11.0
 
 ---
 

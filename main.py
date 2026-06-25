@@ -1,7 +1,19 @@
 #!/usr/bin/env python3
 """
-PCP Enfestos v2.10.1
+PCP Enfestos v2.11.0
 Changelog:
+  v2.11.0 - Frentes A-F + F-1, e Frente C REFORMULADA. A: download duplicado corrigido,
+            resultado some ao mudar parametro, todos os params no Excel. B: rolos em celulas
+            (Tab/colar), % nas tolerancias especiais. C -- ALOCADOR "ENFESTO POR ENFESTO":
+            por cor, corta o mapa mais longo primeiro e reaproveita a ponta que sobra como
+            CAMADA INTEIRA de um enfesto mais curto (so camada inteira, sem emenda, margem
+            1x/enfesto, greedy). Saida por enfesto + fontes (ponta reaproveitada marcada),
+            resumo por rolo, KPI "tecido economizado"; re-entrada do comprimento real do
+            Audaces; relatorio de alocacao para impressao. Substitui o "corte separado"
+            antigo (engine/reaproveitamento.py removido). D: pesos de eficiencia placebo
+            removidos; desempate por desvio relativo. E: multi-aba segura (progresso por
+            job_id + fila). F: logs rotativos, escrita atomica, validacao de entrada, https
+            no auto-update. F-1: estado global do solver removido (historicos/resume via params).
   v2.10.1 - FIX CRITICO do auto-update: o PCP_Enfestos.vbs chamava main.py direto,
             pulando o launcher.py (onde mora o auto-update) -> a fabrica nunca
             atualizava sozinha. Agora o VBS chama launcher.py. Esta versao precisa
@@ -43,7 +55,7 @@ from urllib.parse import urlparse
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
-VERSION      = "2.10.1"
+VERSION      = "2.11.0"
 CORES_FILE        = os.path.join(BASE_DIR, "dados", "cores_salvas.json")
 PARAMS_FILE       = os.path.join(BASE_DIR, "dados", "parametros_salvos.json")
 PID_FILE          = os.path.join(BASE_DIR, "dados", "servidor.pid")
