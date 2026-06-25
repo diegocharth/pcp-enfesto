@@ -152,7 +152,7 @@ def _calcular_cortado(mapas_sel, folhas_dict, grade, tamanhos):
 
 
 def resolver(grade, tamanhos, limites, config, callback_progresso=None, timeout_s=120,
-             min_n_mapas=1, skip_combos=0):
+             min_n_mapas=1, skip_combos=0, historicos=None, resume_out=None):
     """
     Resolve o plano de enfestos.
     min_n_mapas: pula níveis já completamente explorados (para retomada).
@@ -180,7 +180,7 @@ def resolver(grade, tamanhos, limites, config, callback_progresso=None, timeout_
     log("Gerando mapas candidatos...")
     todos  = gerar_mapas(tamanhos, max_pecas)
     rel    = filtrar_mapas_relevantes(todos, grade_total, tamanhos)
-    prior  = priorizar_mapas(rel, grade_total, tamanhos, top_n=400)
+    prior  = priorizar_mapas(rel, grade_total, tamanhos, top_n=400, historicos=historicos)
     log(f"Mapas candidatos: {len(prior)} (de {len(todos)} totais)")
 
     # Ordena cores do maior para o menor grade total:
@@ -391,10 +391,11 @@ def resolver(grade, tamanhos, limites, config, callback_progresso=None, timeout_
         log(f"Use 'Continuar' para buscar com {proximo_n}+ mapas.")
 
     # Salva info para main.py retornar ao frontend
-    resolver._niveis_esgotados   = niveis_esgotados
-    resolver._ultimo_n_explorado = n_mapas if 'n_mapas' in dir() else min_n_mapas
-    resolver._proximo_n          = proximo_n
-    resolver._skip_combos        = skip_proximo
+    if resume_out is not None:
+        resume_out["niveis_esgotados"]   = niveis_esgotados
+        resume_out["ultimo_n_explorado"] = n_mapas if 'n_mapas' in dir() else min_n_mapas
+        resume_out["proximo_n"]          = proximo_n
+        resume_out["skip_combos"]        = skip_proximo
 
     return result[:num_opcoes]
 

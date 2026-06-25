@@ -73,8 +73,9 @@ def test_convergiu_flag_setado_apos_busca_completa():
         _ref("A", {"BLUES": {"PP": 4, "P": 4, "M": 2}}),
         _ref("B", {"BLUES": {"PP": 3, "P": 3, "M": 1}}),
     ]
-    resolver_multiref(refs, TAMS, CFG, callback=None, timeout_s=60)
-    assert getattr(resolver_multiref, "_convergiu", None) is True
+    _r = {}
+    resolver_multiref(refs, TAMS, CFG, callback=None, timeout_s=60, resume_out=_r)
+    assert _r.get("convergiu") is True
 
 
 def test_n_mapas_max_zero_retorna_vazio():

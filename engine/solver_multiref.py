@@ -11,7 +11,7 @@ from engine.mapas   import gerar_mapas, filtrar_mapas_relevantes, priorizar_mapa
 from engine.solver  import _resolver_folhas_cor
 
 
-def resolver_multiref(refs_data, tamanhos, config, callback=None, timeout_s=120, n_mapas_max=7):
+def resolver_multiref(refs_data, tamanhos, config, callback=None, timeout_s=120, n_mapas_max=7, resume_out=None):
     """
     refs_data: list of {
         nome:    str,
@@ -37,7 +37,8 @@ def resolver_multiref(refs_data, tamanhos, config, callback=None, timeout_s=120,
         if callback:
             callback(msg)
 
-    resolver_multiref._convergiu = True  # default; vira False so se cortar por timeout
+    if resume_out is not None:
+        resume_out["convergiu"] = True  # default; vira False so se cortar por timeout
 
     if n_teto < 1:
         log("Combinar este grupo nao reduz enfestos (limite < 1). Pulando.")
@@ -249,7 +250,8 @@ def resolver_multiref(refs_data, tamanhos, config, callback=None, timeout_s=120,
     # Sinaliza ao chamador se a busca convergiu (nao foi cortada pelo timeout).
     # Mesmo padrao do solver.py -- usado por main.py para so cachear/aprender
     # tempos de buscas COMPLETAS (evita vies na ETA).
-    resolver_multiref._convergiu = not cortado_timeout
+    if resume_out is not None:
+        resume_out["convergiu"] = not cortado_timeout
 
     if not melhores:
         return []

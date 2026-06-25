@@ -405,7 +405,6 @@ class Handler(BaseHTTPRequestHandler):
         grade_total = {t: sum(grade[c].get(t, 0) for c in grade) for t in tamanhos}
         fp = _fingerprint_grade(grade_total, tamanhos)
 
-        from engine import mapas as _mapas_mod
         historicos = carregar_historico(fp)
 
         _reset_job(job_id)
@@ -422,16 +421,14 @@ class Handler(BaseHTTPRequestHandler):
             _add_progresso(job_id, "Aguardando outro calculo terminar (na fila)...")
             _calc_lock.acquire()
         try:
-            _mapas_mod._mapas_historicos_injetar = historicos
-            try:
-                solucoes = resolver(grade, tamanhos, limites, cfg,
-                                    callback_progresso=cb, timeout_s=timeout,
-                                    min_n_mapas=min_n_mapas, skip_combos=skip_combos)
-            finally:
-                _mapas_mod._mapas_historicos_injetar = []  # sempre limpar após uso
-            r_niveis = getattr(resolver, '_niveis_esgotados', [])
-            r_prox   = getattr(resolver, '_proximo_n', 1)
-            r_skip   = getattr(resolver, '_skip_combos', 0)
+            _resume = {}
+            solucoes = resolver(grade, tamanhos, limites, cfg,
+                                callback_progresso=cb, timeout_s=timeout,
+                                min_n_mapas=min_n_mapas, skip_combos=skip_combos,
+                                historicos=historicos, resume_out=_resume)
+            r_niveis = _resume.get('niveis_esgotados', [])
+            r_prox   = _resume.get('proximo_n', 1)
+            r_skip   = _resume.get('skip_combos', 0)
         finally:
             _calc_lock.release()
         _elapsed = time.time() - _t0
@@ -594,12 +591,13 @@ class Handler(BaseHTTPRequestHandler):
             _add_progresso(job_id, "Aguardando outro calculo terminar (na fila)...")
             _calc_lock.acquire()
         try:
+            _resume_g = {}
             solucoes = resolver_multiref(refs_data, tamanhos, cfg,
                                          callback=cb, timeout_s=timeout,
-                                         n_mapas_max=n_mapas_max)
+                                         n_mapas_max=n_mapas_max, resume_out=_resume_g)
             # Sinal exato do solver: a busca convergiu ou foi cortada pelo timeout?
             # (mesma estrategia do single-ref, que usa r_skip==0 -- evita vies na ETA)
-            _convergiu = getattr(resolver_multiref, '_convergiu', True)
+            _convergiu = _resume_g.get('convergiu', True)
         finally:
             _calc_lock.release()
         _elapsed = time.time() - _t0

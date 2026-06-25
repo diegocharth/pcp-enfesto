@@ -7,11 +7,6 @@ O comprimento total do mapa = soma(pecas_por_tam) × consumo_por_peca.
 import math
 from itertools import product as iproduct
 
-# Injeção de mapas históricos: main.py pode setar esta lista antes de chamar
-# o solver. priorizar_mapas coloca esses mapas no topo da lista de prioridades,
-# acelerando a busca para grades já vistas anteriormente.
-_mapas_historicos_injetar: list = []
-
 
 def max_pecas_por_mapa(comprimento_mesa: float, consumo: float) -> int:
     """Número máximo de peças que cabem num mapa dado o comprimento da mesa."""
@@ -83,7 +78,7 @@ def score_mapa(mapa: dict, grade_total: dict, tamanhos: list) -> float:
     return score * total_mapa
 
 
-def priorizar_mapas(mapas: list, grade_total: dict, tamanhos: list, top_n: int = 300) -> list:
+def priorizar_mapas(mapas: list, grade_total: dict, tamanhos: list, top_n: int = 300, historicos: list = None) -> list:
     """
     Retorna os top_n mapas mais promissores para o solver.
 
@@ -172,11 +167,10 @@ def priorizar_mapas(mapas: list, grade_total: dict, tamanhos: list, top_n: int =
             result.append(m)
             in_result.add(mkey)
 
-    # 5. Mapas históricos no início
-    global _mapas_historicos_injetar
-    if _mapas_historicos_injetar:
+    # 5. Mapas históricos no início (passados pelo chamador)
+    if historicos:
         mapas_set = {tuple(sorted(m.items())) for m in mapas}
-        hist_valid = [m for m in _mapas_historicos_injetar
+        hist_valid = [m for m in historicos
                       if tuple(sorted(m.items())) in mapas_set]
         if hist_valid:
             hist_keys = {tuple(sorted(m.items())) for m in hist_valid}
