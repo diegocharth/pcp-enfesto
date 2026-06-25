@@ -182,6 +182,9 @@ def baixar_e_aplicar(asset_url, versao_nova, callback=None):
         if callback:
             callback(msg)
 
+    if not isinstance(asset_url, str) or not asset_url.lower().startswith("https://"):
+        return False, "URL de update invalida: exige https:// (recusado por seguranca)."
+
     log(f"Baixando versao {versao_nova}...")
 
     # 1. Baixar para arquivo temporario

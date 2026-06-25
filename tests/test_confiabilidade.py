@@ -16,3 +16,11 @@ def test_num_coercao_com_default():
     assert main._num({"a": "x"}, "a", 7, int) == 7
     assert main._num({}, "a", 9, int) == 9
     assert main._num({"a": "2.5"}, "a", 1.0, float) == 2.5
+
+
+def test_update_rejeita_url_nao_https():
+    import importlib
+    upd = importlib.import_module("updater")
+    ok, msg = upd.baixar_e_aplicar("http://exemplo.com/app.zip", "9.9.9")
+    assert ok is False
+    assert "https" in msg.lower()

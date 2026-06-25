@@ -781,7 +781,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         except Exception as e:
             import traceback
-            self._send(500, {"erro": str(e), "trace": traceback.format_exc()})
+            _log.error("Erro em /importar_rolos: %s\n%s", e, traceback.format_exc())
+            self._send(500, {"erro": "Erro ao importar rolos. Detalhes no log (dados/logs/pcp.log)."})
             return
         finally:
             try: os.unlink(tmp_path)
