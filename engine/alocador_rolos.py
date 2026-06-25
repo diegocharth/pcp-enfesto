@@ -79,13 +79,13 @@ def _alocar_cor(demanda, comp_camada_por_id, rolos_cor, config):
     ponta_min = float(config.get("ponta_minima_util_m", 0.5))
     _EPS = 1e-4
 
-    # Estado por rolo-raiz: peca atual no pool (comprimento), usado acumulado.
-    rolos = []   # [{rolo_indice, nominal_m, seguro_m, restante_m, usado_m, origem, enfesto_origem}]
+    # Estado por rolo-raiz: peca atual no pool (restante_m) + origem.
+    rolos = []   # [{rolo_indice, nominal_m, seguro_m, restante_m, origem, enfesto_origem}]
     for i, nom in enumerate(rolos_cor):
         seguro = round(_comp_seguro(nom, config), 6)
         rolos.append({
             "rolo_indice": i + 1, "nominal_m": float(nom), "seguro_m": seguro,
-            "restante_m": seguro, "usado_m": 0.0,
+            "restante_m": seguro,
             "origem": "rolo", "enfesto_origem": None,
         })
 
@@ -127,7 +127,6 @@ def _alocar_cor(demanda, comp_camada_por_id, rolos_cor, config):
                         "primaria": eh_primaria, "reaproveitada": r["origem"] == "ponta",
                     })
                     r["restante_m"] = round(r["restante_m"] - consumo, 6)
-                    r["usado_m"]    = round(r["usado_m"] + consumo, 6)
                     r["origem"] = "ponta"          # apos uso, vira ponta reaproveitavel
                     r["enfesto_origem"] = mid
                     cobertas += k
@@ -173,6 +172,7 @@ def _alocar_cor(demanda, comp_camada_por_id, rolos_cor, config):
         "ponta_estoque_total_m": round(ponta_est, 3),
         "refugo_real_m": round(refugo_real, 3),
         "refugo_percentual": round(100 * refugo_real / nom_total, 2) if nom_total > 0 else 0.0,
+        # n_sub_enfestos = 1 por mapa coberto (NAO por pilha fisica) -- margem 1x/enfesto.
         "n_sub_enfestos": sum(1 for e in enfestos if e["camadas_cobertas"] > 0),
         "reaproveitamento": {"camadas_reaproveitadas": reap_camadas,
                              "tecido_economizado_m": round(reap_tecido, 3)},
