@@ -5,7 +5,7 @@ Nota de handoff: onde o projeto está e como continuar. (Resumo durável; o deta
 ## Estado atual
 - **Roadmap A–F + F-1 100% concluído e mergeado em `main`.** `main` no commit mais recente; **105 testes pytest passando**.
 - **Branch:** `main`, working tree limpo, sem branches de frente sobrando.
-- **NÃO foi feito `git push`** — há ~41 commits locais à frente de `origin/main`. Nada se perde no desligamento (commits estão no disco).
+- **Já publicado em `origin/main`** (push feito em 2026-06-25; local em sincronia com o remoto). **A fábrica NÃO foi atualizada** por isso — ver "Publicar/deploy" abaixo.
 
 ## O que cada frente entregou
 - **A** — download duplicado corrigido; resultado some ao mudar parâmetro; todos os parâmetros no Excel (single/multi-ref/alocação).
@@ -30,9 +30,15 @@ python main.py                       # abre o servidor na 5050; teste a UI no na
 4. Tolerância especial: testar um limite em **`%`** (ex.: PP máx `10%`) e ver no Excel.
 5. Abrir **2 abas** e calcular nas duas → a 2ª mostra "na fila" e o progresso não se mistura.
 
-## Publicar (quando estiver satisfeito)
+## Publicar / deploy para a fábrica
+O código já está em `origin/main`. **Empurrar `main` NÃO atualiza a fábrica** — o workflow `.github/workflows/release.yml` só cria um Release (que o auto-update da fábrica puxa) quando o push **altera o arquivo `VERSION`** e a tag `v<versao>` ainda não existe.
+
+Para liberar para a fábrica (depois do smoke-test):
 ```
-git push        # envia os commits locais para o GitHub e dispara o fluxo de auto-update da fabrica
+# 1) bumpar a versao no arquivo VERSION (ex.: 2.10.1 -> 2.11.0)
+# 2) atualizar o changelog/VERSION coerentes
+git add VERSION ; git commit -m "release: v2.11.0" ; git push
+# -> o CI cria o Release v2.11.0; a fabrica auto-atualiza na proxima abertura.
 ```
 (Lembrete do changelog: a v2.10.1 corrigiu o VBS→launcher; a fábrica precisa receber UMA atualização manual antes do auto-update fluir sozinho.)
 
