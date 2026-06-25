@@ -6,8 +6,10 @@ dados/mapa_cores.json
 dados/cache_planos.json
 dados/tempos_aprendidos.json
 dados/servidor.pid
+dados/estoque_pontas.json
 dados/resultados/
 dados/ordens/
+dados/logs/
 dados/_update_pendente/
 dados/_backup_versao_anterior/
 
