@@ -2165,14 +2165,14 @@ function _sugestoesAlocacao(data) {
     }
     (cr.rolos || []).forEach(function(r, ri) {
       var ponta = parseFloat(r.ponta_m) || 0;
-      var nominal = parseFloat(r.comprimento_nominal_m) || 0;
+      var nominal = parseFloat(r.nominal_m) || 0;
       if (r.ponta_classe === 'estoque' && ponta > 0 && nominal > 0 && ponta / nominal > 0.08) {
         var ideal = parseFloat((nominal - ponta).toFixed(1));
         sugs.push({tipo:'otimizar', cor:cor,
           msg: 'Rolo ' + (ri+1) + ' (' + nominal + 'm) sobrou ' + ponta.toFixed(1) + 'm (' +
                Math.round(ponta/nominal*100) + '%). Trocar por um rolo de ~' + ideal + 'm reduziria a ponta.'});
       }
-      if ((r.sub_enfestos || []).length === 0 && (parseFloat(r.usado_m)||0) === 0) {
+      if ((parseFloat(r.usado_m)||0) === 0) {
         sugs.push({tipo:'excesso', cor:cor,
           msg: 'Rolo ' + (ri+1) + ' (' + nominal + 'm) nao foi utilizado. Pode ser retirado do plano.'});
       }
