@@ -1,6 +1,13 @@
 """
-PCP Enfestos -- Alocador de Rolos v1.0
-=======================================
+PCP Enfestos -- Alocador de Rolos v2.0 (enfesto por enfesto)
+============================================================
+
+MODELO (v2): a alocacao processa os enfestos do mapa mais LONGO para o mais CURTO,
+por cor. A ponta que sobra de um enfesto e reaproveitada como camada inteira de um
+enfesto seguinte (mapa mais curto), sem emenda. A margem de faca e paga 1x por enfesto.
+Nunca cruza cor; nunca corta submapa parcial; so dentro do mesmo plano (sem estoque
+entre OPs). Ver engine/alocador_rolos.py::_alocar_cor e o spec
+docs/superpowers/specs/2026-06-25-alocador-enfesto-por-enfesto-design.md.
 
 GLOSSARIO (para leitura por nao-tecnicos)
 ------------------------------------------
@@ -22,7 +29,8 @@ PONTA DE ROLO:
   A sobra de tecido no final de um rolo apos esgotar todos os sub-enfestos possiveis.
   Comprimento insuficiente para mais uma camada do mapa atual.
   NAO E REFUGO -- e um subproduto reaproveitavel:
-    - Pontas grandes (>= ponta_minima_util_m): vao para estoque ou viram mini-enfestos.
+    - Pontas grandes (>= ponta_minima_util_m): reaproveitadas como CAMADA INTEIRA de
+      outro enfesto (mapa mais curto) do mesmo plano; o que sobrar vira estoque.
     - Pontas pequenas (< ponta_minima_util_m): refugo real (irrecuperavel).
 
 EMENDA:
