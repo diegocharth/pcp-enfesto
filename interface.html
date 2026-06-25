@@ -2194,41 +2194,19 @@ function _sugestoesAlocacao(data) {
   return html;
 }
 
-function _htmlCorteSeparado(cr) {
-  var sugs = cr.sugestoes_corte_separado || [];
-  if (!sugs.length) return '';
-  var h = '<div style="margin-top:6px;background:var(--okb);border:1px solid var(--ok);border-radius:var(--r);padding:6px;font-size:12px">';
-  h += '<b style="color:var(--ok)">Corte separado sugerido (usa as pontas):</b>';
-  sugs.forEach(function(s) {
-    var compos = Object.keys(s.composicao||{}).map(function(t){ return s.composicao[t]+t; }).join('+');
-    h += '<div style="padding:3px 0">';
-    h += 'Mapa ' + s.mapa_id + ' (' + s.rotulo + ': ' + compos + ', ' + s.comp_camada + 'm): ';
-    h += (s.cortes||[]).map(function(c){
-      return c.n_camadas + ' camada(s) na ponta do rolo ' + (c.rolo_origem_indice+1) +
-             ' (' + c.ponta_usada_m + 'm)';
-    }).join('; ');
-    if (s.deficit_residual_camadas > 0) {
-      h += ' &mdash; ainda faltam ' + s.deficit_residual_camadas + ' camada(s).';
-    }
-    h += '</div>';
-  });
-  h += '</div>';
-  return h;
-}
-
 function _htmlSobrasPorRolo(cr) {
-  var sob = cr.sobras_por_rolo || [];
-  if (!sob.length) return '';
-  var h = '<div style="margin-top:6px;font-size:11px"><b>Sobras por rolo:</b>';
-  h += '<table style="width:100%;border-collapse:collapse;margin-top:3px">';
-  h += '<tr style="color:var(--tx2)"><td>Rolo</td><td>Usado</td><td>Ponta</td><td>Classe</td></tr>';
-  sob.forEach(function(s) {
-    var cor = s.ponta_classe === 'estoque' ? 'var(--ok)' : 'var(--er)';
+  var rolos = cr.rolos || [];
+  if (!rolos.length) return '';
+  var h = '<div style="margin-top:6px"><b>Sobras por rolo</b>'
+        + '<table style="font-size:12px;width:100%"><tr><th>Rolo</th><th>Usado</th>'
+        + '<th>Ponta</th><th>Classe</th></tr>';
+  rolos.forEach(function(s){
+    var cor = s.ponta_classe === 'estoque' ? 'green' : '#b00';
     h += '<tr><td>' + s.rolo_indice + '</td><td>' + s.usado_m + 'm</td>'
-       + '<td style="color:' + cor + '">' + s.ponta_m + 'm</td><td>' + s.ponta_classe + '</td></tr>';
+       + '<td style="color:' + cor + '">' + s.ponta_m + 'm</td>'
+       + '<td>' + s.ponta_classe + '</td></tr>';
   });
-  h += '</table></div>';
-  return h;
+  return h + '</table></div>';
 }
 
 function _renderResultadoAlocacao(data) {
@@ -2262,29 +2240,24 @@ function _renderResultadoAlocacao(data) {
     html += cor+' &mdash; '+(cr.n_sub_enfestos||0)+' sub-enfesto(s), refugo '+(cr.refugo_percentual||0)+'%';
     if (Object.keys(cr.camadas_em_deficit||{}).length) html += ' <span style="color:var(--er)">&#9888; deficit</span>';
     html += '</summary><div style="padding:8px;font-size:12px">';
-    (cr.rolos||[]).forEach(function(r,ri) {
-      var corP = r.ponta_classe==='estoque'?'var(--ok)':'var(--er)';
-      html += '<div style="margin-bottom:6px;padding:6px;background:var(--sf2);border-radius:var(--r)">';
-      html += '<b>Rolo '+(ri+1)+'</b> '+r.comprimento_nominal_m+'m &rarr; seguro '+r.comprimento_seguro_m+'m | ';
-      html += 'usado '+r.usado_m+'m | ponta <span style="color:'+corP+'">'+r.ponta_m+'m ('+r.ponta_classe+')</span>';
-      if ((r.sub_enfestos||[]).length) {
-        html += '<div style="margin-top:4px;padding-left:12px">';
-        r.sub_enfestos.forEach(function(s){
-          html += '<div>Mapa '+s.mapa_id+': '+s.n_camadas+' camada(s) x '+s.comp_camada+'m + '+s.margem_m+'m faca = '+s.comp_total+'m</div>';
-        });
-        html += '</div>';
-      }
-      html += '</div>';
-    });
-    if (Object.keys(cr.camadas_em_deficit||{}).length) {
-      html += '<div style="background:var(--erb);padding:6px;border-radius:var(--r)">';
-      html += '<b style="color:var(--er)">Deficit:</b> ';
-      Object.keys(cr.camadas_em_deficit).forEach(function(mid){
-        html += 'Mapa '+mid+': '+(cr.camadas_em_deficit[mid])+' camada(s) | ';
+    (cr.enfestos || []).forEach(function(e){
+      var reap = (e.fontes||[]).some(function(f){return f.reaproveitada;});
+      html += '<div style="margin:4px 0;font-weight:600">'
+            + (reap ? '&#8635; ' : '')
+            + 'Mapa ' + e.mapa_id + ' &mdash; camada ' + e.comp_camada_m + 'm &mdash; '
+            + e.camadas_cobertas + '/' + e.camadas_necessarias + ' camadas</div>';
+      (e.fontes||[]).forEach(function(f){
+        var de = f.tipo === 'ponta'
+               ? 'ponta do rolo ' + f.rolo_indice + ' (do enfesto ' + f.enfesto_origem + ')'
+               : 'rolo ' + f.rolo_indice;
+        html += '<div style="margin-left:12px;font-size:12px">'
+              + f.n_camadas + ' camada(s) de ' + de
+              + (f.reaproveitada ? ' &#8635;' : '') + '</div>';
       });
-      html += 'Comprar aprox. '+(cr.tecido_a_comprar_m||0)+'m</div>';
-    }
-    html += _htmlCorteSeparado(cr);
+      if (e.camadas_em_deficit > 0)
+        html += '<div style="margin-left:12px;color:#b00;font-size:12px">comprar '
+              + e.tecido_a_comprar_m + 'm (' + e.camadas_em_deficit + ' camada(s))</div>';
+    });
     html += _htmlSobrasPorRolo(cr);
     html += '</div></details>';
   });
@@ -2316,18 +2289,18 @@ function _htmlImpressaoAlocacao(d, ref) {
   cores.forEach(function(cor) {
     var cr = d.por_cor[cor];
     h += '<div class="cor"><h2>' + cor + '</h2>';
-    (cr.rolos||[]).forEach(function(r, ri) {
-      h += '<div><b>Rolo ' + (ri+1) + '</b> (' + r.comprimento_nominal_m + 'm): ';
-      h += (r.sub_enfestos||[]).map(function(s){
-        return s.n_camadas + ' folha(s) do mapa ' + s.mapa_id;
-      }).join('; ') || 'sem uso';
-      h += ' | ponta ' + r.ponta_m + 'm (' + r.ponta_classe + ')</div>';
-    });
-    (cr.sugestoes_corte_separado||[]).forEach(function(s){
-      var compos = Object.keys(s.composicao||{}).map(function(t){return s.composicao[t]+t;}).join('+');
-      h += '<div class="ok">&#8635; Corte separado: mapa ' + s.mapa_id + ' (' + s.rotulo + ': ' + compos + ') &mdash; '
-         + (s.cortes||[]).map(function(c){return c.n_camadas+' na ponta do rolo '+(c.rolo_origem_indice+1);}).join('; ');
-      if (s.deficit_residual_camadas>0) h += ' (faltam ' + s.deficit_residual_camadas + ')';
+    (cr.enfestos||[]).forEach(function(e){
+      var reap = (e.fontes||[]).some(function(f){return f.reaproveitada;});
+      h += '<div>' + (reap ? '&#8635; ' : '') + '<b>Mapa ' + e.mapa_id + '</b> (camada ' + e.comp_camada_m + 'm): '
+         + e.camadas_cobertas + '/' + e.camadas_necessarias + ' camadas &mdash; '
+         + (e.fontes||[]).map(function(f){
+             var de = f.tipo === 'ponta'
+                    ? 'ponta do rolo ' + f.rolo_indice + ' (do enfesto ' + f.enfesto_origem + ')'
+                    : 'rolo ' + f.rolo_indice;
+             return f.n_camadas + ' camada(s) de ' + de + (f.reaproveitada ? ' &#8635;' : '');
+           }).join('; ');
+      if (e.camadas_em_deficit > 0)
+        h += ' <span class="def">comprar ' + e.tecido_a_comprar_m + 'm (' + e.camadas_em_deficit + ' camada(s))</span>';
       h += '</div>';
     });
     var comprar = parseFloat(cr.tecido_a_comprar_m)||0;
@@ -2337,7 +2310,7 @@ function _htmlImpressaoAlocacao(d, ref) {
 
   h += '<h2>Sobras totais por rolo</h2><table><tr><th>Cor</th><th>Rolo</th><th>Ponta (m)</th><th>Classe</th></tr>';
   cores.forEach(function(cor) {
-    (d.por_cor[cor].sobras_por_rolo||[]).forEach(function(s){
+    (d.por_cor[cor].rolos||[]).forEach(function(s){
       h += '<tr><td>' + cor + '</td><td>' + s.rolo_indice + '</td><td>' + s.ponta_m + '</td><td>' + s.ponta_classe + '</td></tr>';
     });
   });
