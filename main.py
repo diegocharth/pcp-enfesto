@@ -195,9 +195,10 @@ def remover_pid():
     except: pass
 
 
-# Fila de progresso para o cálculo em andamento
-_progresso_fila = []
+# Progresso por job: cada aba (page load) tem seu JOB_ID; mensagens nao se misturam.
+_progressos = {}                 # job_id -> list[str]
 _progresso_lock = threading.Lock()
+_PROGRESSO_MAX_JOBS = 50          # teto p/ nao crescer sem limite (GC simples)
 
 # Serializa cálculos: o solver usa estado global compartilhado (mapas históricos
 # injetados + atributos de retomada na função resolver). ThreadingHTTPServer atende
@@ -205,9 +206,22 @@ _progresso_lock = threading.Lock()
 # o estado um do outro. Mantido durante todo o cálculo (single-user desktop).
 _calc_lock = threading.Lock()
 
-def _add_progresso(msg):
+def _reset_job(job_id):
     with _progresso_lock:
-        _progresso_fila.append(msg)
+        _progressos[job_id] = []
+        if len(_progressos) > _PROGRESSO_MAX_JOBS:
+            for k in list(_progressos.keys())[:-_PROGRESSO_MAX_JOBS]:
+                _progressos.pop(k, None)
+
+def _add_progresso(job_id, msg):
+    with _progresso_lock:
+        _progressos.setdefault(job_id, []).append(msg)
+
+def _drain_job(job_id):
+    with _progresso_lock:
+        msgs = _progressos.get(job_id, [])
+        _progressos[job_id] = []
+        return msgs
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -251,10 +265,9 @@ class Handler(BaseHTTPRequestHandler):
             cfg = carregar_config()
             self._send(200, {"tem_api_key": bool(cfg.get("anthropic_api_key","").strip())})
         elif path == "/progresso":
-            with _progresso_lock:
-                msgs = list(_progresso_fila)
-                _progresso_fila.clear()
-            self._send(200, {"msgs": msgs})
+            from urllib.parse import parse_qs
+            job = (parse_qs(urlparse(self.path).query).get("job") or [""])[0]
+            self._send(200, {"msgs": _drain_job(job) if job else []})
         elif path == "/encerrar":
             self._send(200, {"ok": True})
             threading.Thread(target=_encerrar_servidor, daemon=True).start()
@@ -314,6 +327,7 @@ class Handler(BaseHTTPRequestHandler):
         timeout     = int(p.get("timeout", 120))
         min_n_mapas = int(p.get("min_n_mapas", 1))
         skip_combos = int(p.get("skip_combos", 0))
+        job_id      = p.get("job_id", "default")
 
         # Salvar parâmetros usados para próxima sessão
         salvar_params({
@@ -362,18 +376,20 @@ class Handler(BaseHTTPRequestHandler):
         from engine import mapas as _mapas_mod
         historicos = carregar_historico(fp)
 
-        with _progresso_lock:
-            _progresso_fila.clear()
+        _reset_job(job_id)
 
         logs     = []
         def cb(msg):
             logs.append(msg)
-            _add_progresso(msg)
+            _add_progresso(job_id, msg)
 
         # Cálculo sob lock: injeção de históricos + resolver + leitura dos atributos
         # de retomada formam uma seção crítica (estado global compartilhado).
         _t0 = time.time()
-        with _calc_lock:
+        if not _calc_lock.acquire(blocking=False):
+            _add_progresso(job_id, "Aguardando outro calculo terminar (na fila)...")
+            _calc_lock.acquire()
+        try:
             _mapas_mod._mapas_historicos_injetar = historicos
             try:
                 solucoes = resolver(grade, tamanhos, limites, cfg,
@@ -384,6 +400,8 @@ class Handler(BaseHTTPRequestHandler):
             r_niveis = getattr(resolver, '_niveis_esgotados', [])
             r_prox   = getattr(resolver, '_proximo_n', 1)
             r_skip   = getattr(resolver, '_skip_combos', 0)
+        finally:
+            _calc_lock.release()
         _elapsed = time.time() - _t0
         # Aprende o tempo real SO de buscas que terminaram (r_skip==0 = nao cortada
         # por timeout). Tempo de busca cortada enviesaria a mediana para baixo e o
@@ -491,6 +509,7 @@ class Handler(BaseHTTPRequestHandler):
         refs_raw    = p.get("refs", [])
         referencia  = p.get("referencia", "Grupo")
         regras      = p.get("regras_especiais", {})
+        job_id      = p.get("job_id", "default")
 
         # Calcula limites para cada ref com seu próprio consumo
         refs_data = []
@@ -528,24 +547,28 @@ class Handler(BaseHTTPRequestHandler):
             return
         n_cores = sum(len(r["grade"]) for r in refs_data)
 
-        with _progresso_lock:
-            _progresso_fila.clear()
+        _reset_job(job_id)
 
         logs = []
         def cb(msg):
             logs.append(msg)
-            _add_progresso(msg)
+            _add_progresso(job_id, msg)
 
         # Mesmo lock do cálculo single-ref: serializa para não interleavar progresso
         # nem competir pelo estado global compartilhado do solver.
         _t0 = time.time()
-        with _calc_lock:
+        if not _calc_lock.acquire(blocking=False):
+            _add_progresso(job_id, "Aguardando outro calculo terminar (na fila)...")
+            _calc_lock.acquire()
+        try:
             solucoes = resolver_multiref(refs_data, tamanhos, cfg,
                                          callback=cb, timeout_s=timeout,
                                          n_mapas_max=n_mapas_max)
             # Sinal exato do solver: a busca convergiu ou foi cortada pelo timeout?
             # (mesma estrategia do single-ref, que usa r_skip==0 -- evita vies na ETA)
             _convergiu = getattr(resolver_multiref, '_convergiu', True)
+        finally:
+            _calc_lock.release()
         _elapsed = time.time() - _t0
         if _convergiu:
             _CACHE.registrar_tempo(_bucket_grupo(len(refs_data), n_cores), _elapsed)
