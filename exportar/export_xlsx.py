@@ -1168,6 +1168,8 @@ def _aba_resumo_alocacao(wb, resultado, referencia, params=None):
         ("Refugo real total (m)",         resumo.get("refugo_real_total_m", 0)),
         ("Refugo (% sobre nominal)",      resumo.get("refugo_percentual_medio", 0)),
         ("Total de sub-enfestos",         resumo.get("n_sub_enfestos_total", 0)),
+        ("Camadas reaproveitadas",        resumo.get("camadas_reaproveitadas_total", 0)),
+        ("Tecido economizado (m)",        resumo.get("tecido_economizado_total_m", 0)),
     ]
     for label, valor in campos:
         _cel(ws, r, 1, label, fundo=C_CINZA_HDR, negrito=True)
@@ -1193,7 +1195,7 @@ def _aba_resumo_alocacao(wb, resultado, referencia, params=None):
 
 
 def _aba_cor_alocacao(wb, cor, cor_res):
-    """Aba de detalhe por cor: rolos, sub-enfestos, pontas."""
+    """Aba de detalhe por cor: enfestos, fontes, sobras por rolo."""
     nome_aba = f"Rolos {cor[:20]}"
     ws = wb.create_sheet(nome_aba)
     ws.column_dimensions["A"].width = 10
@@ -1211,12 +1213,14 @@ def _aba_cor_alocacao(wb, cor, cor_res):
     r += 2
 
     # KPIs da cor
+    reapro = cor_res.get("reaproveitamento") or {}
     kpis = [
         ("Tecido usado (m)",         cor_res.get("tecido_usado_m", 0)),
         ("Ponta estoque (m)",         cor_res.get("ponta_estoque_total_m", 0)),
         ("Refugo real (m)",           cor_res.get("refugo_real_m", 0)),
         ("Refugo (%)",                cor_res.get("refugo_percentual", 0)),
-        ("Sub-enfestos",              cor_res.get("n_sub_enfestos", 0)),
+        ("Enfestos cortados",         cor_res.get("n_sub_enfestos", 0)),
+        ("Reaproveitado (camadas)",   reapro.get("camadas_reaproveitadas", 0)),
         ("Tecido a comprar (m)",      cor_res.get("tecido_a_comprar_m", 0)),
     ]
     for label, valor in kpis:
@@ -1227,61 +1231,67 @@ def _aba_cor_alocacao(wb, cor, cor_res):
 
     r += 1
 
-    # Tabela de rolos
-    headers = ["Rolo", "Nominal (m)", "Seguro (m)", "Usado (m)", "Ponta (m)", "Classe", "Sub-enfestos"]
-    for col, h in enumerate(headers, 1):
-        _cel(ws, r, col, h, negrito=True, fundo=C_AZUL_MED, cor_txt=C_BRANCO, alinha="center")
+    # ── Por enfesto ──────────────────────────────────────────────────────────
+    _cel(ws, r, 1, "Por enfesto", negrito=True, fundo=C_AZUL_MED, cor_txt=C_BRANCO)
+    ws.merge_cells(f"A{r}:G{r}")
     r += 1
 
-    for rolo in cor_res.get("rolos", []):
-        n_sub  = len(rolo.get("sub_enfestos", []))
-        fundo  = C_VERDE if rolo["ponta_classe"] == "estoque" else C_CINZA_ALT
-        vals   = [
-            rolo["indice"] + 1,
-            rolo["comprimento_nominal_m"],
-            rolo["comprimento_seguro_m"],
-            rolo["usado_m"],
-            rolo["ponta_m"],
-            rolo["ponta_classe"],
-            n_sub,
-        ]
-        for col, v in enumerate(vals, 1):
-            _cel(ws, r, col, v, fundo=fundo, alinha="center" if col in (1, 6, 7) else "right")
+    for e in cor_res.get("enfestos", []):
+        fontes = e.get("fontes", [])
+        tem_reapro = any(f.get("reaproveitada") for f in fontes)
+        titulo = (f"Mapa {e['mapa_id']} -- camada {e['comp_camada_m']}m -- "
+                  f"{e['camadas_cobertas']}/{e['camadas_necessarias']} camadas")
+        if tem_reapro:
+            _cel(ws, r, 1, titulo, negrito=True, fundo=C_VERDE, cor_txt=C_VERDE_TX)
+        else:
+            _cel(ws, r, 1, titulo, negrito=True, fundo=C_CINZA_HDR)
+        ws.merge_cells(f"A{r}:G{r}")
         r += 1
 
-        # Sub-enfestos deste rolo
-        for sub in rolo.get("sub_enfestos", []):
-            _cel(ws, r, 2, f"  Mapa {sub['mapa_id']}", fundo=C_CINZA_ALT)
-            _cel(ws, r, 3, f"{sub['n_camadas']} camadas", fundo=C_CINZA_ALT, alinha="right")
-            _cel(ws, r, 4, sub["comp_camada"], fundo=C_CINZA_ALT, alinha="right")
-            _cel(ws, r, 5, sub["comp_total"], fundo=C_CINZA_ALT, alinha="right")
-            _cel(ws, r, 6, f"(+{sub['margem_m']}m faca)", fundo=C_CINZA_ALT)
+        for f in fontes:
+            if f.get("tipo") == "rolo":
+                origem = f"rolo {f['rolo_indice']}"
+            else:
+                origem = (f"ponta do rolo {f['rolo_indice']} "
+                          f"(do enfesto {f['enfesto_origem']})")
+            txt = f"{f['n_camadas']}x {origem}"
+            if f.get("reaproveitada"):
+                txt += " [reaproveitada]"
+            _cel(ws, r, 2, txt, fundo=C_CINZA_ALT)
+            ws.merge_cells(f"B{r}:G{r}")
             r += 1
 
-    sobras = cor_res.get("sobras_por_rolo", [])
-    if sobras:
-        r += 1
+        if e.get("camadas_em_deficit", 0) > 0:
+            _cel(ws, r, 2,
+                 f"comprar {e['tecido_a_comprar_m']}m "
+                 f"({e['camadas_em_deficit']} camada(s))",
+                 fundo=C_VERMELHO, cor_txt=C_VERM_TX)
+            ws.merge_cells(f"B{r}:G{r}")
+            r += 1
+
+    r += 1
+
+    # ── Sobras por rolo ──────────────────────────────────────────────────────
+    rolos = cor_res.get("rolos", [])
+    if rolos:
         _cel(ws, r, 1, "Sobras por rolo", negrito=True, fundo=C_AZUL_MED, cor_txt=C_BRANCO)
+        ws.merge_cells(f"A{r}:G{r}")
         r += 1
-        for s in sobras:
-            _cel(ws, r, 1, f"Rolo {s['rolo_indice']}")
-            _cel(ws, r, 2, s["ponta_m"], alinha="right")
-            _cel(ws, r, 3, s["ponta_classe"])
-            r += 1
-
-    sugs = cor_res.get("sugestoes_corte_separado", [])
-    if sugs:
+        headers = ["Rolo", "Usado (m)", "Ponta (m)", "Classe"]
+        for col, h in enumerate(headers, 1):
+            _cel(ws, r, col, h, negrito=True, fundo=C_CINZA_HDR, alinha="center")
         r += 1
-        _cel(ws, r, 1, "Corte separado sugerido", negrito=True, fundo=C_VERDE, cor_txt=C_VERDE_TX)
-        r += 1
-        for s in sugs:
-            compos = "+".join(f"{q}{t}" for t, q in (s.get("composicao") or {}).items())
-            cortes = "; ".join(
-                f"{c['n_camadas']}x rolo {c['rolo_origem_indice']+1}"
-                for c in s.get("cortes", [])
-            )
-            _cel(ws, r, 1, f"Mapa {s['mapa_id']} ({s['rotulo']}: {compos})")
-            _cel(ws, r, 2, cortes)
+        for rolo in rolos:
+            fundo = C_VERDE if rolo.get("ponta_classe") == "estoque" else C_CINZA_ALT
+            vals = [
+                rolo["rolo_indice"],
+                rolo["usado_m"],
+                rolo["ponta_m"],
+                rolo["ponta_classe"],
+            ]
+            for col, v in enumerate(vals, 1):
+                _cel(ws, r, col, v, fundo=fundo,
+                     alinha="center" if col in (1, 4) else "right")
             r += 1
 
 

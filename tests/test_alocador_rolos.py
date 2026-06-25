@@ -357,3 +357,21 @@ def test_resumo_geral_tem_reaproveitamento():
     assert "camadas_reaproveitadas_total" in rg
     assert "tecido_economizado_total_m" in rg
     assert "sugestoes_corte_total" not in rg
+
+
+def test_export_alocacao_tem_sobras_e_enfestos():
+    import tempfile, openpyxl
+    from exportar.export_xlsx import exportar_alocacao
+    plano = {"mapas": [{"id": 0, "composicao": {"M": 6}, "n_pecas": 6},
+                       {"id": 1, "composicao": {"P": 3}, "n_pecas": 3}],
+             "camadas": {"AZUL": {0: 2, 1: 1}}, "consumo_peca": 1.3}
+    res = alocar_rolos(plano, {"AZUL": [24.0]}, dict(CONFIG_BASE))
+    with tempfile.TemporaryDirectory() as d:
+        cam = exportar_alocacao(res, "TESTE", d, {**res.get("params", {}), "versao": "x"})
+        wb = openpyxl.load_workbook(cam)
+        ws = [s for s in wb.sheetnames if s.startswith("Rolos")][0]
+        textos = " ".join(str(c.value) for row in wb[ws].iter_rows()
+                           for c in row if c.value is not None)
+    assert "Sobras por rolo" in textos
+    assert "Mapa" in textos
+    assert "Corte separado" not in textos
