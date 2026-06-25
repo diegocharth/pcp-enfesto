@@ -639,7 +639,7 @@ def _aba_comparativo(wb, solucoes, grade, tamanhos, limites, referencia):
         ("Média peças/mapa",      lambda s: s["resumo"]["media_pecas_mapa"]),
         ("Total folhas",          lambda s: s["resumo"]["total_folhas"]),
         ("Ajuste de grade (pç)",  lambda s: s["resumo"].get("desvio_total", 0)),
-        ("Score otimização",      lambda s: round(s.get("score", 0), 4)),
+        ("Desvio relativo",       lambda s: round(s.get("resumo", {}).get("desvio_relativo", 0), 4)),
     ]:
         _cel(ws, row, 1, lbl, fundo=C_CINZA_ALT)
         _cel(ws, row, 2, "", fundo=C_CINZA_ALT)

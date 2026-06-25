@@ -136,6 +136,8 @@ O `interface.html` já foi corrompido antes por `Set-Content -Encoding utf8` do 
 2. **Maior média de peças/mapa** — melhor aproveitamento de tecido
 3. **Menor número de enfestos** — menos setup
 
+**Ranqueamento real (lexicográfico, sem pesos configuráveis):** a ordenação das soluções é estritamente lexicográfica — `menos enfestos -> menor desvio -> mais peças/mapa -> menor desvio relativo`. NÃO existem pesos de eficiência configuráveis (os antigos `peso_enc`/`peso_op`/`peso_eficiencia_*` eram placebo e foram removidos — o solver nunca os lia).
+
 **Regra crítica — Mapas Estratégicos:**
 - `hi = 0` → cria mapa puro dedicado (ex: G=1 somente) — **obrigatório**
 - `hi >= 1` → solver inclui tamanho normalmente — NÃO criar mapa estratégico
@@ -196,10 +198,6 @@ O restante usa apenas stdlib (http.server, json, os, threading, urllib, zipfile,
   "desvio_percentual_padrao": 20,
   "criterio_combinacao": "MIN",
   "num_opcoes_saida": 2,
-  "peso_eficiencia_encaixe": 0.6,
-  "peso_eficiencia_operacional": 0.4,
-  "tamanhos_prioritarios_positivo": ["PP", "P"],
-  "peso_desvio_por_tamanho": {"XPP":1.5,"PP":0.5,"P":0.5,"M":1.0,"G":1.5},
   "anthropic_api_key": "",
   "margem_seguranca_enfesto_m": 0.10,
   "folga_incerteza_pct": 0.03,

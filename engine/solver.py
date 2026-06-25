@@ -7,7 +7,7 @@ Regra hi=0 aplicada via check_viavel — sem mapa estratégico forçado.
 
 import time
 from itertools import combinations, islice
-from engine.tolerancia import check_viavel, custo_desvio, desvio_absoluto_total
+from engine.tolerancia import desvio_absoluto_total
 from engine.mapas import gerar_mapas, filtrar_mapas_relevantes, priorizar_mapas, max_pecas_por_mapa
 
 try:
@@ -149,36 +149,6 @@ def _calcular_cortado(mapas_sel, folhas_dict, grade, tamanhos):
             for t in tamanhos
         }
     return result
-
-
-def _score_solucao(mapas_sel, folhas_dict, grade, tamanhos, config):
-    """
-    Score de uma solução. Hierarquia:
-    1. Menor desvio absoluto total (premissa primária — peso 0.65)
-    2. Maior média de peças por mapa (peso 0.25)
-    3. Menor nº de enfestos (peso 0.10)
-    """
-    # 1. Desvio total — menor é melhor
-    cortado = _calcular_cortado(mapas_sel, folhas_dict, grade, tamanhos)
-    dev_abs = desvio_absoluto_total(cortado, grade, tamanhos)
-    # Normalização: 0 dev = score 1.0, cada unidade de desvio reduz o score
-    # Referência: grade_total como escala
-    grade_total_pecas = sum(grade[c].get(t, 0) for c in grade for t in tamanhos)
-    score_desvio = 1.0 / (1.0 + dev_abs / max(grade_total_pecas * 0.05, 1))
-
-    # 2. Eficiência de encaixe — maior peças/mapa é melhor
-    pecas_por_mapa = [sum(m.values()) for m in mapas_sel]
-    max_possivel = max_pecas_por_mapa(
-        float(config.get("mesa_comprimento_m", 10.0)),
-        float(config.get("consumo_peca_m", 1.0645))
-    )
-    media_pecas = sum(pecas_por_mapa) / len(mapas_sel)
-    score_enc = media_pecas / max(max_possivel, 1)
-
-    # 3. Eficiência operacional — menos enfestos é melhor
-    score_op = 1.0 / len(mapas_sel)
-
-    return 0.65 * score_desvio + 0.25 * score_enc + 0.10 * score_op
 
 
 def resolver(grade, tamanhos, limites, config, callback_progresso=None, timeout_s=120,
@@ -325,7 +295,6 @@ def resolver(grade, tamanhos, limites, config, callback_progresso=None, timeout_
                 continue
 
             combos_validas += 1
-            sc = _score_solucao(list(combo), folhas_sol, grade, tamanhos, config)
 
             cortado_tot = _calcular_cortado(list(combo), folhas_sol, grade, tamanhos)
             dev_total   = desvio_absoluto_total(cortado_tot, grade, tamanhos)
@@ -340,7 +309,6 @@ def resolver(grade, tamanhos, limites, config, callback_progresso=None, timeout_
                 "n_mapas": n_mapas,
                 "mapas"  : [dict(m) for m in combo],
                 "folhas" : folhas_sol,
-                "score"  : sc,
                 "resumo" : {
                     "n_mapas"             : n_mapas,
                     "total_folhas"        : total_folhas,

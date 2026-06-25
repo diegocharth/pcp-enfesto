@@ -113,11 +113,6 @@ input:focus,select:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 2p
 .cmp-table tr:nth-child(even) td{background:var(--sf2)}
 .cmp-melhor{color:var(--ok);font-weight:700}.cmp-pior{color:var(--er);font-weight:600}
 .cmp-table .tot-g td{background:var(--acl)!important;font-weight:700;color:var(--ac)}
-/* pesos vinculados */
-.peso-wrap{display:flex;gap:10px;align-items:center;margin-top:4px}
-.peso-wrap input{flex:1}
-.peso-total{font-size:11px;padding:4px 8px;border-radius:var(--r);font-weight:600;background:var(--okb);color:var(--ok)}
-.peso-total.err{background:var(--erb);color:var(--er)}
 /* api key box */
 .api-box{background:#fffbf0;border:1px solid #f0d080;border-radius:var(--r);padding:8px 12px;font-size:11px;color:#5a4000;margin-top:8px;line-height:1.6;display:none}
 .api-box b{font-weight:600}
@@ -167,21 +162,6 @@ input:focus,select:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 2p
         <option value="3">3 opções</option>
       </select>
       <div class="hint">Gera opções distintas para simular no Audaces.</div>
-    </div>
-    <div class="field">
-      <label>Peso eficiência de encaixe</label>
-      <div class="peso-wrap">
-        <input type="number" id="peso_enc" value="6" min="0" max="10" step="1" oninput="sincPeso('enc')">
-        <span class="peso-total" id="peso-total">= 10 ✓</span>
-      </div>
-      <div class="hint"><b>Maximizar peças/mapa</b> → melhor tecido no Audaces.</div>
-    </div>
-    <div class="field">
-      <label>Peso eficiência operacional</label>
-      <div class="peso-wrap">
-        <input type="number" id="peso_op" value="4" min="0" max="10" step="1" oninput="sincPeso('op')">
-      </div>
-      <div class="hint"><b>Minimizar nº de enfestos</b> → menos setup na mesa.</div>
     </div>
   </div>
   <div class="field" style="max-width:300px">
@@ -416,7 +396,6 @@ window.onload = async () => {
   addRef();
   try { atualizarCoresAlocacao(); } catch(e) {}
   try { setTimeout(verificarUpdate, 3000); } catch(e) {}
-  sincPeso('enc');
   try { const d = await (await fetch('/versao')).json(); document.getElementById('ver-sp').textContent='v'+d.versao; } catch(e){}
   try { const d = await (await fetch('/config_pub')).json();
     if (!d.tem_api_key) document.getElementById('api-box').style.display='block';
@@ -434,8 +413,6 @@ async function carregarDados() {
     if (p.tol_abs)    document.getElementById('tol_abs').value    = p.tol_abs;
     if (p.tol_pct)    document.getElementById('tol_pct').value    = p.tol_pct;
     if (p.criterio)   document.getElementById('criterio').value   = p.criterio;
-    if (p.peso_enc !== undefined) document.getElementById('peso_enc').value = p.peso_enc;
-    if (p.peso_op  !== undefined) document.getElementById('peso_op').value  = p.peso_op;
     if (p.timeout)    document.getElementById('timeout').value    = p.timeout;
     // Tamanhos
     if (p.tamanhos && p.tamanhos.length) {
@@ -456,7 +433,6 @@ async function carregarDados() {
         });
       }, 100);
     }
-    sincPeso('enc');
   } catch(e) {}
 
   // Carregar cadastro de cores
@@ -471,26 +447,6 @@ async function carregarDados() {
   } catch(e) {}
 }
 
-// ── Pesos vinculados (soma = 10) ──────────────────────────────────────────────
-function sincPeso(alterado) {
-  const enc = document.getElementById('peso_enc');
-  const op  = document.getElementById('peso_op');
-  const tot = document.getElementById('peso-total');
-  let vEnc = parseInt(enc.value) || 0;
-  let vOp  = parseInt(op.value)  || 0;
-  if (alterado === 'enc') {
-    vEnc = Math.max(0, Math.min(10, vEnc));
-    vOp  = 10 - vEnc;
-    enc.value = vEnc; op.value = vOp;
-  } else {
-    vOp  = Math.max(0, Math.min(10, vOp));
-    vEnc = 10 - vOp;
-    op.value = vOp; enc.value = vEnc;
-  }
-  const soma = vEnc + vOp;
-  tot.textContent = `= ${soma} ${soma===10?'✓':'✗'}`;
-  tot.className = 'peso-total' + (soma!==10?' err':'');
-}
 
 // ── Tamanhos ──────────────────────────────────────────────────────────────────
 function renderTams() {
@@ -959,8 +915,6 @@ async function calcular(){
   const tol_abs    = parseInt(document.getElementById('tol_abs').value);
   const tol_pct    = parseInt(document.getElementById('tol_pct').value);
   const criterio   = document.getElementById('criterio').value;
-  const peso_enc   = parseFloat(document.getElementById('peso_enc').value);
-  const peso_op    = parseFloat(document.getElementById('peso_op').value);
   const timeout    = parseInt(document.getElementById('timeout').value);
   const regras     = lerRegras();
 
@@ -984,7 +938,7 @@ async function calcular(){
   document.getElementById('prog-etapas').innerHTML='';
   const L=m=>{logEl.textContent+=m+'\n';logEl.scrollTop=logEl.scrollHeight;};
 
-  const baseParams={mesa,max_folhas,num_opcoes,tol_abs,tol_pct,criterio,peso_enc,peso_op,timeout,tamanhos,regras_especiais:regras};
+  const baseParams={mesa,max_folhas,num_opcoes,tol_abs,tol_pct,criterio,timeout,tamanhos,regras_especiais:regras};
 
   // ── Multi-referência: testa todos os agrupamentos possíveis ──
   if(refs.length > 1){
@@ -1172,7 +1126,7 @@ async function calcular(){
     return;
   }
   const consumo=consumos[0];
-  const payload={referencia,consumo,mesa,max_folhas,num_opcoes,tol_abs,tol_pct,criterio,peso_enc,peso_op,timeout,tamanhos,grade,regras_especiais:regras,min_n_mapas:1,skip_combos:0};
+  const payload={referencia,consumo,mesa,max_folhas,num_opcoes,tol_abs,tol_pct,criterio,timeout,tamanhos,grade,regras_especiais:regras,min_n_mapas:1,skip_combos:0};
 
   // ── Retomada reutilizável: re-arma o botão Continuar a cada timeout ──
   async function continuarBusca(proxN, skipC){

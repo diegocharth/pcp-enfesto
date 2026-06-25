@@ -21,8 +21,6 @@ CONFIG_BASE = {
     "margem_seguranca_enfesto_m": 0.10,
     "folga_incerteza_pct"       : 0.03,
     "folga_incerteza_m"         : 0.0,
-    "peso_fragmentacao"         : 0.5,
-    "peso_ponta_util"           : 0.5,
     "ponta_minima_util_m"       : 0.5,
 }
 

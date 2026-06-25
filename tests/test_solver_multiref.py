@@ -19,10 +19,6 @@ CFG = {
     "desvio_absoluto_padrao": 4,
     "desvio_percentual_padrao": 20,
     "criterio_combinacao": "MIN",
-    "peso_eficiencia_encaixe": 0.6,
-    "peso_eficiencia_operacional": 0.4,
-    "peso_desvio_por_tamanho": {"PP": 0.5, "P": 0.5, "M": 1.0, "G": 1.5},
-    "tamanhos_prioritarios_positivo": ["PP", "P"],
 }
 TAMS = ["PP", "P", "M", "G"]
 

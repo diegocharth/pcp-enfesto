@@ -305,8 +305,6 @@ class Handler(BaseHTTPRequestHandler):
         cfg["desvio_absoluto_padrao"]      = int(p.get("tol_abs", 4))
         cfg["desvio_percentual_padrao"]    = int(p.get("tol_pct", 20))
         cfg["criterio_combinacao"]         = p.get("criterio", "MIN")
-        cfg["peso_eficiencia_encaixe"]     = float(p.get("peso_enc", 6)) / 10.0
-        cfg["peso_eficiencia_operacional"] = float(p.get("peso_op", 4)) / 10.0
 
         tamanhos   = p.get("tamanhos", ["PP","P","M","G"])
         grade      = {cor: {t: int(v) for t,v in tms.items()}
@@ -326,8 +324,6 @@ class Handler(BaseHTTPRequestHandler):
             "tol_abs": p.get("tol_abs", 4),
             "tol_pct": p.get("tol_pct", 20),
             "criterio": p.get("criterio", "MIN"),
-            "peso_enc": p.get("peso_enc", 6),
-            "peso_op": p.get("peso_op", 4),
             "timeout": timeout,
             "tamanhos": tamanhos,
             "regras_especiais": regras,
@@ -350,7 +346,6 @@ class Handler(BaseHTTPRequestHandler):
             "mesa": cfg["mesa_comprimento_m"], "max_folhas": cfg["limite_folhas_padrao"],
             "num_opcoes": cfg["num_opcoes_saida"], "tol_abs": cfg["desvio_absoluto_padrao"],
             "tol_pct": cfg["desvio_percentual_padrao"], "criterio": cfg["criterio_combinacao"],
-            "peso_enc": cfg["peso_eficiencia_encaixe"], "peso_op": cfg["peso_eficiencia_operacional"],
             "tamanhos": tamanhos, "regras": regras,
         })
         if usa_cache:
@@ -489,8 +484,6 @@ class Handler(BaseHTTPRequestHandler):
         cfg["desvio_absoluto_padrao"]      = int(p.get("tol_abs", 4))
         cfg["desvio_percentual_padrao"]    = int(p.get("tol_pct", 20))
         cfg["criterio_combinacao"]         = p.get("criterio", "MIN")
-        cfg["peso_eficiencia_encaixe"]     = float(p.get("peso_enc", 6)) / 10.0
-        cfg["peso_eficiencia_operacional"] = float(p.get("peso_op", 4)) / 10.0
 
         tamanhos    = p.get("tamanhos", ["PP","P","M","G"])
         timeout     = int(p.get("timeout", 120))
@@ -526,7 +519,6 @@ class Handler(BaseHTTPRequestHandler):
             "mesa": cfg["mesa_comprimento_m"], "max_folhas": cfg["limite_folhas_padrao"],
             "num_opcoes": cfg["num_opcoes_saida"], "tol_abs": cfg["desvio_absoluto_padrao"],
             "tol_pct": cfg["desvio_percentual_padrao"], "criterio": cfg["criterio_combinacao"],
-            "peso_enc": cfg["peso_eficiencia_encaixe"], "peso_op": cfg["peso_eficiencia_operacional"],
             "tamanhos": tamanhos, "regras": regras, "n_mapas_max": n_mapas_max,
         })
         hit = _CACHE.obter(sig)
