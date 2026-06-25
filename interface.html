@@ -2221,7 +2221,10 @@ function _renderResultadoAlocacao(data) {
   var refugo = +(res.refugo_real_total_m||0);
   html += _kpiAloc('Refugo real', refugo.toFixed(1)+'m ('+(res.refugo_percentual_medio||0)+'%)', refugo>0?'wn':'ok');
   html += '</div><div class="g3" style="margin-bottom:10px">';
-  html += _kpiAloc('Sub-enfestos total', res.n_sub_enfestos_total||0);
+  html += _kpiAloc('Enfestos cortados', res.n_sub_enfestos_total||0);
+  var reapCam = res.camadas_reaproveitadas_total||0;
+  html += _kpiAloc('Reaproveitado', reapCam+' camada(s)', reapCam>0?'ok':'');
+  html += _kpiAloc('Tecido economizado', (+(res.tecido_economizado_total_m||0)).toFixed(1)+'m', reapCam>0?'ok':'');
   var cDef = res.cores_com_deficit||[];
   html += _kpiAloc('Cores com deficit', cDef.join(', ')||'Nenhuma', cDef.length?'er':'ok');
   html += '</div>';
