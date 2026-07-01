@@ -55,7 +55,7 @@ from urllib.parse import urlparse
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
-VERSION      = "2.11.1"
+VERSION      = "2.11.2"
 CORES_FILE        = os.path.join(BASE_DIR, "dados", "cores_salvas.json")
 PARAMS_FILE       = os.path.join(BASE_DIR, "dados", "parametros_salvos.json")
 PID_FILE          = os.path.join(BASE_DIR, "dados", "servidor.pid")
@@ -297,7 +297,12 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path in ("/", "/index.html"):
             with open(os.path.join(BASE_DIR, "interface.html"), "rb") as f:
-                self._send_html(f.read())
+                html = f.read()
+            # Injeta a versao real no header ({{VERSION}}) para nunca desatualizar:
+            # o header ja nasce correto na primeira renderizacao, sem depender do
+            # fetch /versao (que continua como redundancia no window.onload).
+            html = html.replace(b"{{VERSION}}", VERSION.encode("utf-8"))
+            self._send_html(html)
         elif path == "/versao":
             self._send(200, {"versao": VERSION})
         elif path == "/cores":
