@@ -55,7 +55,7 @@ from urllib.parse import urlparse
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
-VERSION      = "2.11.3"
+VERSION      = "2.11.4"
 CORES_FILE        = os.path.join(BASE_DIR, "dados", "cores_salvas.json")
 PARAMS_FILE       = os.path.join(BASE_DIR, "dados", "parametros_salvos.json")
 PID_FILE          = os.path.join(BASE_DIR, "dados", "servidor.pid")
@@ -283,6 +283,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(html)))
+        # Nunca cachear a pagina: apos o auto-update, o navegador precisa buscar
+        # o interface.html novo (senao a fabrica ve o front antigo ate limpar cache).
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
         self.end_headers()
         self.wfile.write(html)
 
@@ -379,7 +384,11 @@ class Handler(BaseHTTPRequestHandler):
         job_id      = p.get("job_id", "default")
         _log.info("calcular ref=%s job=%s", referencia, job_id)
 
-        # Salvar parâmetros usados para próxima sessão
+        # Salvar parâmetros usados para próxima sessão.
+        # timeout: persiste o valor DIGITADO na UI (timeout_ui), nao o orcamento
+        # efetivo desta chamada -- no modo multi-ref cada ref roda com um timeout
+        # estrangulado (tI), que nao deve virar o padrao salvo. Sem timeout_ui
+        # (single-ref), o proprio timeout ja e o valor da UI.
         salvar_params({
             "consumo": p.get("consumo", 1.0645),
             "mesa": p.get("mesa", 10.0),
@@ -388,7 +397,7 @@ class Handler(BaseHTTPRequestHandler):
             "tol_abs": p.get("tol_abs", 4),
             "tol_pct": p.get("tol_pct", 20),
             "criterio": p.get("criterio", "MIN"),
-            "timeout": timeout,
+            "timeout": _num(p, "timeout_ui", timeout, int),
             "tamanhos": tamanhos,
             "regras_especiais": regras,
         })

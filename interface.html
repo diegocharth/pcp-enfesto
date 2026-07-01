@@ -166,7 +166,7 @@ input:focus,select:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 2p
   </div>
   <div class="field" style="max-width:300px">
     <label>Timeout da busca (segundos)</label>
-    <input type="number" id="timeout" value="120" min="30" max="180" step="30">
+    <input type="number" id="timeout" value="180" min="30" max="180" step="30">
     <div class="hint">Tempo por referência individual. Agrupamentos usam 240s × n_refs (ex: 3 refs = 720s, 2 refs = 480s).</div>
   </div>
 </div>
@@ -217,7 +217,7 @@ input:focus,select:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 2p
 <div class="card">
   <div class="ct"><span>⚖️ Tolerâncias</span><span class="sm">Aplicadas a todas as referências</span></div>
   <div class="ibox">
-    Usa o <b>critério mais restritivo (MIN)</b> entre absoluto e percentual. Ex: grade P=34 → min(±4, ±6,8) = <b>±4</b>. Grade XPP=1 → min(±4, ±0,2) = <b>±1</b>.
+    Usa o <b>critério mais restritivo (MIN)</b> entre absoluto e percentual; o percentual é arredondado para peça inteira (0,5 ou mais sobe, abaixo desce), com mínimo de 1. Ex: grade P=34 → 20% = 6,8 → <b>7</b>; min(±4, ±7) = <b>±4</b>. Grade XPP=1 → 20% = 0,2 → mín. <b>1</b>; min(±4, ±1) = <b>±1</b>.
   </div>
   <div class="g3" style="margin-bottom:10px">
     <div class="field">
@@ -950,7 +950,9 @@ async function calcular(){
   document.getElementById('prog-etapas').innerHTML='';
   const L=m=>{logEl.textContent+=m+'\n';logEl.scrollTop=logEl.scrollHeight;};
 
-  const baseParams={mesa,max_folhas,num_opcoes,tol_abs,tol_pct,criterio,timeout,tamanhos,regras_especiais:regras,job_id:JOB_ID};
+  // timeout_ui = valor digitado; sobrevive ao override por-ref ({...baseParams, timeout:tI})
+  // para que o backend salve o timeout da UI, nao o estrangulado por referencia.
+  const baseParams={mesa,max_folhas,num_opcoes,tol_abs,tol_pct,criterio,timeout,timeout_ui:timeout,tamanhos,regras_especiais:regras,job_id:JOB_ID};
 
   // ── Multi-referência: testa todos os agrupamentos possíveis ──
   if(refs.length > 1){
