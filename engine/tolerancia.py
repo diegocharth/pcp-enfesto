@@ -1,20 +1,30 @@
 """
-Módulo de tolerância v2.2
+Módulo de tolerância v2.3
 Premissa: minimizar desvio da grade é objetivo primário.
 PP e P com sobra positiva têm custo reduzido (são tamanhos prioritários).
+Tolerância % arredonda o decimal pelo padrão comercial (meio pra cima):
+0..0,49 desce, 0,5..0,99 sobe. NÃO usa o round() do Python (bancário).
 """
 
 import math
 
 
+def _arredondar_meio_pra_cima(x: float) -> int:
+    """Arredonda ao inteiro mais proximo, com o meio (,5) SEMPRE para cima.
+    Ex.: 4,2->4 | 4,5->5 | 4,9->5. Regra pedida pelo Diego para a tolerancia %.
+    Difere do round() nativo, que usa arredondamento bancario (2,5->2, 0,5->0).
+    Assume x >= 0 (toda tolerancia % e' nao-negativa)."""
+    return int(math.floor(x + 0.5))
+
+
 def _resolver_limite(valor, grade_valor):
     """Magnitude inteira (>=0 p/ percentual) de um limite especial.
-    String terminando em '%' -> relativo a grade (round); senao absoluto."""
+    String terminando em '%' -> relativo a grade (meio pra cima); senao absoluto."""
     if isinstance(valor, str):
         s = valor.strip()
         if s.endswith('%'):
             pct = float(s[:-1].strip().replace(',', '.'))
-            return int(round(float(grade_valor) * pct / 100.0))
+            return _arredondar_meio_pra_cima(float(grade_valor) * pct / 100.0)
         return int(round(float(s.replace(',', '.'))))
     return int(valor)
 
@@ -30,7 +40,7 @@ def calcular_limites(grade_valor: float, tamanho: str, config: dict,
         r = regras_especiais[tamanho]
         # Calcular tol geral para usar quando lo ou hi não forem informados
         tol_abs = int(config.get("desvio_absoluto_padrao", 4))
-        tol_pct = max(1, round(float(grade_valor) * float(config.get("desvio_percentual_padrao", 20)) / 100.0))
+        tol_pct = max(1, _arredondar_meio_pra_cima(float(grade_valor) * float(config.get("desvio_percentual_padrao", 20)) / 100.0))
         criterio = config.get("criterio_combinacao", "MIN").upper()
         tol_geral = min(tol_abs, tol_pct) if criterio == "MIN" else max(tol_abs, tol_pct)
         # 'lo': percentual -> magnitude negada; absoluto (int ou str) -> sinal preservado.
@@ -48,7 +58,7 @@ def calcular_limites(grade_valor: float, tamanho: str, config: dict,
         return (lo, hi)
 
     tol_abs = int(config.get("desvio_absoluto_padrao", 4))
-    tol_pct = max(1, round(float(grade_valor) * float(config.get("desvio_percentual_padrao", 20)) / 100.0))
+    tol_pct = max(1, _arredondar_meio_pra_cima(float(grade_valor) * float(config.get("desvio_percentual_padrao", 20)) / 100.0))
     criterio = config.get("criterio_combinacao", "MIN").upper()
     tol = min(tol_abs, tol_pct) if criterio == "MIN" else max(tol_abs, tol_pct)
     return (-tol, tol)
