@@ -134,52 +134,81 @@ def resolver_multiref(refs_data, tamanhos, config, callback=None, timeout_s=120,
                 break
 
             combos_testadas += 1
-            folhas_por_ref  = {}
             valida          = True
             desvio_total    = 0
             desvio_rel_total = 0
+            used_per_slot   = [0] * n_mapas
 
-            for ri, ref in enumerate(refs_data):
-                mapas_slots = [combo[k][ri] for k in range(n_mapas)]
-                folhas_ref  = {}
-                lims_ref    = ref.get("limites", {})
+            # A camada fisica (folha) e' compartilhada por TODAS as refs que usam
+            # uma cor no enfesto combinado: cortar N folhas corta N copias de CADA
+            # peca de CADA referencia desenhada no mapa (e' uma unica pilha de
+            # tecido, nao uma por referencia). Por isso o numero de folhas por
+            # cor tem que ser resolvido UMA SO VEZ considerando a demanda de
+            # todas as refs que compartilham essa cor -- nao uma vez por ref.
+            todas_cores = []
+            vistas_cor  = set()
+            for ref in refs_data:
+                for cor in ref["grade"]:
+                    if cor not in vistas_cor:
+                        vistas_cor.add(cor)
+                        todas_cores.append(cor)
+            # Maior demanda combinada primeiro (mesma logica do solver single-ref):
+            # falha rapido em combos invalidas e reserva capacidade de folhas
+            # pras cores maiores primeiro.
+            todas_cores.sort(key=lambda c: -sum(
+                sum(ref["grade"].get(c, {}).values()) for ref in refs_data
+            ))
 
-                for cor, grade_cor in ref["grade"].items():
-                    lim_cor = lims_ref.get(cor, {})
-                    fs = _resolver_folhas_cor(
-                        mapas_slots, grade_cor, tamanhos, lim_cor, max_folhas
-                    )
-                    if fs is None:
-                        valida = False
-                        break
-                    folhas_ref[cor] = fs
-                    # Acumula desvio
-                    ct = {t: sum(fs[k] * mapas_slots[k].get(t, 0) for k in range(n_mapas))
-                          for t in tamanhos}
-                    desvio_total += sum(abs(ct[t] - grade_cor.get(t, 0)) for t in tamanhos)
-                    desvio_rel_total += sum(
-                        abs(ct[t] - grade_cor.get(t, 0)) / (grade_cor.get(t, 0) or 1)
-                        for t in tamanhos
-                    )
-
-                if not valida:
+            folhas_por_cor = {}
+            for cor in todas_cores:
+                remaining = [max_folhas - used_per_slot[k] for k in range(n_mapas)]
+                if any(r <= 0 for r in remaining):
+                    valida = False
                     break
-                folhas_por_ref[ri] = folhas_ref
+
+                # Dimensao composta (ref, tamanho) -- so p/ refs que tem essa cor.
+                comp_tams   = []
+                comp_grade  = {}
+                comp_limite = {}
+                comp_rows   = [dict() for _ in range(n_mapas)]
+                for ri, ref in enumerate(refs_data):
+                    grade_cor_ref = ref["grade"].get(cor)
+                    if not grade_cor_ref:
+                        continue
+                    lim_cor_ref = ref.get("limites", {}).get(cor, {})
+                    for t in tamanhos:
+                        chave = (ri, t)
+                        comp_tams.append(chave)
+                        comp_grade[chave]  = grade_cor_ref.get(t, 0)
+                        comp_limite[chave] = lim_cor_ref.get(t, (0, 0))
+                        for k in range(n_mapas):
+                            comp_rows[k][chave] = combo[k][ri].get(t, 0)
+
+                fs = _resolver_folhas_cor(
+                    comp_rows, comp_grade, comp_tams, comp_limite, remaining
+                )
+                if fs is None:
+                    valida = False
+                    break
+                folhas_por_cor[cor] = fs
+                for k in range(n_mapas):
+                    used_per_slot[k] += fs[k]
+
+                # Acumula desvio (por referencia+tamanho, com a folha compartilhada)
+                for ri, ref in enumerate(refs_data):
+                    grade_cor_ref = ref["grade"].get(cor)
+                    if not grade_cor_ref:
+                        continue
+                    for t in tamanhos:
+                        ct = sum(fs[k] * combo[k][ri].get(t, 0) for k in range(n_mapas))
+                        diff = ct - grade_cor_ref.get(t, 0)
+                        desvio_total     += abs(diff)
+                        desvio_rel_total += abs(diff) / (grade_cor_ref.get(t, 0) or 1)
 
             if not valida:
                 continue
-
-            # Verifica limite de folhas por slot combinado
-            for k in range(n_mapas):
-                tf_k = sum(
-                    folhas_por_ref[ri].get(cor, [0] * n_mapas)[k]
-                    for ri in range(N)
-                    for cor in refs_data[ri]["grade"]
-                )
-                if tf_k > max_folhas:
-                    valida = False
-                    break
-            if not valida:
+            # Verificação de segurança (should never trigger com alocação capacity-aware)
+            if any(used_per_slot[k] > max_folhas for k in range(n_mapas)):
                 continue
 
             combos_validas += 1
@@ -193,15 +222,10 @@ def resolver_multiref(refs_data, tamanhos, config, callback=None, timeout_s=120,
                 for k in range(n_mapas)
             ]
             total_pecas  = sum(sum(combo[k][j].values()) for j in range(N) for k in range(n_mapas))
-            total_folhas = sum(
-                folhas_por_ref[ri][cor][k]
-                for ri in range(N)
-                for cor in refs_data[ri]["grade"]
-                for k in range(n_mapas)
-            )
+            total_folhas = sum(used_per_slot)
             media_pecas  = round(total_pecas / n_mapas, 1)
 
-            # Monta resultado por referência
+            # Monta resultado por referência (folhas compartilhadas entre refs da mesma cor)
             refs_sol = []
             for ri, ref in enumerate(refs_data):
                 refs_sol.append({
@@ -210,7 +234,7 @@ def resolver_multiref(refs_data, tamanhos, config, callback=None, timeout_s=120,
                     "grade"  : ref["grade"],
                     "limites": ref.get("limites", {}),
                     "mapas"  : [dict(combo[k][ri]) for k in range(n_mapas)],
-                    "folhas" : {cor: list(folhas_por_ref[ri][cor]) for cor in ref["grade"]},
+                    "folhas" : {cor: list(folhas_por_cor[cor]) for cor in ref["grade"]},
                 })
 
             melhores.append({

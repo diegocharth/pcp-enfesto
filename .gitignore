@@ -24,3 +24,6 @@ _fix*.py
 # OS
 .DS_Store
 Thumbs.db
+
+# Ferramentas locais de dev (nao vao pro repo/zip)
+.claude/

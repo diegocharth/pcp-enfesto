@@ -101,3 +101,33 @@ def test_grupo_2_refs_estrutura_da_solucao():
     assert len(s["refs_sol"]) == 2
     for rs in s["refs_sol"]:
         assert len(rs["mapas"]) == n  # uma composicao por enfesto
+
+
+def test_folhas_da_mesma_cor_sao_compartilhadas_entre_refs():
+    """Bug real (Diego, 2026-07-01): um enfesto combinado e' UM corte fisico so --
+    passar N folhas de uma cor corta N copias de TODAS as pecas de TODAS as
+    referencias desenhadas naquele mapa (e' a mesma pilha de tecido). O numero
+    de folhas de uma cor NAO pode divergir entre referencias que compartilham
+    essa cor no mesmo enfesto -- fisicamente e' uma unica pilha.
+    """
+    refs = [
+        _ref("VESTIDO", {"BLUES": {"PP": 10, "P": 12, "M": 6, "G": 2}}),
+        _ref("CAMISA",  {"BLUES": {"PP": 8,  "P": 10, "M": 5, "G": 2}}),
+    ]
+    sols = resolver_multiref(refs, TAMS, CFG, callback=None, timeout_s=30)
+    assert sols, "deveria retornar ao menos uma solucao combinada"
+    s = sols[0]
+    n = s["resumo"]["n_mapas"]
+    refs_sol = s["refs_sol"]
+    for k in range(n):
+        f_vestido = refs_sol[0]["folhas"]["BLUES"][k]
+        f_camisa  = refs_sol[1]["folhas"]["BLUES"][k]
+        assert f_vestido == f_camisa, (
+            f"enfesto {k}: {f_vestido} folhas p/ VESTIDO vs {f_camisa} p/ CAMISA -- "
+            "deveria ser uma unica pilha fisica compartilhada"
+        )
+    # total_folhas do resumo tem que refletir a pilha fisica UMA vez por enfesto
+    # (nao a soma duplicada por referencia, que era o sintoma do bug).
+    assert s["resumo"]["total_folhas"] == sum(
+        refs_sol[0]["folhas"]["BLUES"][k] for k in range(n)
+    )

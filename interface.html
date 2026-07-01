@@ -668,6 +668,7 @@ function addRef(nome) {
   refs.push({id,nome:nome||'',grade,consumo:consumoPadrao});
   refAtiva=id; renderAbas(); renderPanel(id);
   document.getElementById('info-refs').textContent=refs.length>1?`${refs.length} referências`:'';
+  if(refs.length>1) _esconderResultadoPlano(); // nova referencia -> plano e alocacao atuais ficam obsoletos
 }
 function remRef(id) {
   if(refs.length<=1){alert('Mínimo 1 referência.');return;}
@@ -676,6 +677,7 @@ function remRef(id) {
   if(refAtiva===id) refAtiva=refs[refs.length-1].id;
   renderAbas();
   document.getElementById('info-refs').textContent=refs.length>1?`${refs.length} referências`:'';
+  _esconderResultadoPlano(); // referencia removida -> plano e alocacao atuais ficam obsoletos
 }
 function ativarRef(id){refAtiva=id;renderAbas();}
 function renderAbas() {
@@ -934,6 +936,11 @@ async function calcular(){
 
   document.getElementById('pb').style.display='block';
   document.getElementById('rb').style.display='none';
+  // Recalculando o plano -> resultado e alocacao anteriores ficam obsoletos AGORA,
+  // nao so depois que o novo calculo terminar (senao a alocacao velha fica visivel
+  // e clicavel durante os minutos que o solver leva pra rodar).
+  resultado=null; window._resultadoMulti=null;
+  _esconderResultadoAlocacao();
   document.getElementById('btn-calc').disabled=true;
   document.getElementById('btn-continuar').style.display='none';
   document.getElementById('btn-copiar-log').style.display='none';
@@ -2083,7 +2090,7 @@ function _montarPlanoParaAlocacao() {
   // - single-ref: n_pecas x consumo da referencia;
   // - combinado: comprimento do enfesto (soma de pecas x consumo de cada ref).
   // As camadas (folhas) sao acumuladas por cor real ao longo de todos os grupos.
-  var mapas = [], camadas = {}, mid = 0;
+  var mapas = [], camadas = {}, mid = 1;  // enfesto/mapa comeca em 1 (nao 0) pro operador
 
   function addCamada(cor, n) {
     if (n > 0) { if (!camadas[cor]) camadas[cor] = {}; camadas[cor][mid] = n; }
