@@ -976,8 +976,9 @@ async function calcular(){
     // ETA (segundos) -- aprendido quando ha dados; senao formula enxuta (display)
     const etaGrupo = g  => _TL[keyGrupo(g)] != null ? _TL[keyGrupo(g)] : (6 + 5*nCoresGrupo(g));
     const etaIndiv = ri => _TL[keyIndiv(ri)] != null ? _TL[keyIndiv(ri)] : (4 + 4*nCoresRef(ri));
-    // TETO de tempo (timeout) -- generoso ate aprender; depois ~3x a mediana
-    const tGrupoCalc = g  => { const v=_TL[keyGrupo(g)]; return v!=null ? Math.min(240*g.length, Math.max(20, Math.round(v*3))) : Math.min(180, 60*g.length); };
+    // TETO de tempo (timeout) -- v2.12: o solver novo desiste sozinho por
+    // estagnacao, entao o teto pode ser mais enxuto (2x mediana, max 90s/ref)
+    const tGrupoCalc = g  => { const v=_TL[keyGrupo(g)]; return v!=null ? Math.min(90*g.length, Math.max(30, Math.round(v*2))) : Math.min(150, 60*g.length); };
     const tIndivCalc = ri => { const v=_TL[keyIndiv(ri)]; return v!=null ? Math.min(timeout, Math.max(20, Math.round(v*3))) : timeout; };
 
     _calculoCancelado = false;
@@ -985,6 +986,42 @@ async function calcular(){
     document.getElementById('btn-cancel').style.display = 'inline-flex';
 
     const cache={};
+
+    // ── Paralelismo (v2.12): o backend roda solves em processos separados ──
+    // Ate 5 fetches de calculo ao mesmo tempo (o navegador limita ~6 conexoes
+    // por host; 1 fica livre para o poller de progresso nao morrer de fome).
+    let conc = 4;
+    try { conc = Math.max(1, Math.min(5, (((await (await fetch('/paralelo')).json())||{}).workers)||4)); } catch(e) {}
+
+    async function _promisePool(items, worker){
+      let i = 0;
+      const n = Math.min(conc, items.length);
+      const runners = [];
+      for (let r = 0; r < n; r++) runners.push((async()=>{
+        while (i < items.length && !_calculoCancelado) { const idx = i++; await worker(items[idx], idx); }
+      })());
+      await Promise.all(runners);
+    }
+
+    // Progresso de varios jobs simultaneos: cada job tem id proprio e o
+    // poller drena todos em SEQUENCIA (guarda in-flight: nunca empilha polls).
+    // RUN_NONCE por clique: um calculo cancelado que ainda roda no servidor
+    // nao mistura mensagens velhas no calculo novo.
+    const RUN_NONCE = Date.now().toString(36);
+    const activeJobs = new Map();
+    async function _drainJobMulti(jid, label){
+      try{
+        const d = await (await fetch('/progresso?job='+jid)).json();
+        d.msgs.forEach(m=>L('['+label+'] '+m));
+      }catch(e){}
+    }
+    let _pollBusy = false;
+    const pollTimer = setInterval(async ()=>{
+      if(_pollBusy) return;
+      _pollBusy = true;
+      try{ for(const [jid,label] of [...activeJobs]) await _drainJobMulti(jid,label); }
+      finally{ _pollBusy = false; }
+    }, 900);
 
     // Avalia todas as particoes possiveis com o que ja foi calculado no cache.
     // Retorna lista ordenada por total de enfestos (menor = melhor).
@@ -1011,69 +1048,74 @@ async function calcular(){
     for(let sz=2;sz<=maxSz;sz++) _combis(idxs,sz).forEach(c=>subgrupos.push(c));
 
     const totalSteps=N+subgrupos.length;
-    let step=0;
     const fmtT = s => s>=90 ? '~'+Math.round(s/60)+'min' : '~'+Math.round(s)+'s';
     const _temHist = Object.keys(_TL).length>0;
     const etaTotal = idxs.reduce((s,ri)=>s+etaIndiv(ri),0) + subgrupos.reduce((s,g)=>s+etaGrupo(g),0);
-    L(N+' refs -- '+N+' individuais + '+subgrupos.length+' agrupamentos (exaustivo, com poda)');
-    L('   Tempo estimado: '+fmtT(etaTotal)+(_temHist?' (aprendido, melhora com o uso)':' (estimativa inicial)')+'\n');
+    L(N+' refs -- '+N+' individuais + '+subgrupos.length+' agrupamentos (ate '+conc+' calculos em paralelo)');
+    L('   Tempo estimado: '+fmtT(Math.ceil(etaTotal/conc))+(_temHist?' (aprendido, melhora com o uso)':' (estimativa inicial)')+'\n');
 
-    // ── Fase A: individuais primeiro (baseline barato; o que a fabrica faz manual) ──
+    // ── Fase A: individuais em PARALELO (baseline barato; guia a poda) ──
     const indiv={};  // ri -> nEnfestos (ausente se falhou)
-    for(let ri=0; ri<N; ri++){
-      if(_calculoCancelado){ L('Calculo cancelado.'); break; }
-      step++;
+    async function _calcIndividual(ri){
       const ref=refs[ri], key=String(ri);
+      const label=ref.nome||('Ref '+(ri+1));
       const gradeR=montarGradeRef(ref);
       const consR=(ref.consumo&&ref.consumo>0)?ref.consumo:1.0645;
       const tI=tIndivCalc(ri);
-      L(`[${step}/${totalSteps}] ${ref.nome||'Ref '+(ri+1)} individual (teto ${tI}s)...`);
-      _setEtapa(`i${ri}`,ref.nome||'Ref '+(ri+1),'atual');
+      L(`[${ri+1}/${totalSteps}] ${label} individual (teto ${tI}s)...`);
+      _setEtapa(`i${ri}`,label,'atual');
       if(!Object.values(gradeR).some(g=>Object.values(g).some(v=>v>0))){
-        cache[key]={erro:'Sem pecas'}; _setEtapa(`i${ri}`,'Sem pecas','erro'); continue;
+        cache[key]={erro:'Sem pecas'}; _setEtapa(`i${ri}`,'Sem pecas','erro'); return;
       }
+      const jid=JOB_ID+'-'+RUN_NONCE+'-i'+ri;
+      activeJobs.set(jid,label);
       try{
         const resp=await fetch('/calcular',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({...baseParams,grade:gradeR,referencia:ref.nome||`Ref ${ri+1}`,consumo:consR,timeout:tI}),
+          body:JSON.stringify({...baseParams,grade:gradeR,referencia:label,consumo:consR,timeout:tI,job_id:jid}),
           signal:_abortCtrl.signal});
-        const d=await resp.json(); await _drainProgresso();
-        if(d.erro){ L('  Sem solucao'); cache[key]={erro:d.erro}; _setEtapa(`i${ri}`,'Sem sol.','erro'); }
+        const d=await resp.json(); await _drainJobMulti(jid,label);
+        if(d.erro){ L('  '+label+': sem solucao'); cache[key]={erro:d.erro}; _setEtapa(`i${ri}`,'Sem sol.','erro'); }
         else { const n=d.solucoes[0].resumo.n_mapas; indiv[ri]=n;
           const tg=d.cache?'cache':Math.round(d.tempo_s||0)+'s';
-          L('  OK '+n+' enfesto(s) ('+tg+')'); cache[key]={nEnfestos:n,tipo:'single',data:d}; _setEtapa(`i${ri}`,n+' enf.','ok'); }
+          L('  '+label+': OK '+n+' enfesto(s) ('+tg+')'); cache[key]={nEnfestos:n,tipo:'single',data:d}; _setEtapa(`i${ri}`,n+' enf.','ok'); }
       }catch(e){
-        if(e.name==='AbortError'){ L('Cancelado.'); cache[key]={erro:'Cancelado'}; break; }
-        L('  Erro: '+e.message); cache[key]={erro:e.message}; _setEtapa(`i${ri}`,'Erro','erro');
-      }
+        if(e.name==='AbortError'){ cache[key]={erro:'Cancelado'}; _setEtapa(`i${ri}`,'Cancelado','erro'); }
+        else { L('  '+label+': erro '+e.message); cache[key]={erro:e.message}; _setEtapa(`i${ri}`,'Erro','erro'); }
+      }finally{ activeJobs.delete(jid); }
     }
+    try{
+      await _promisePool(idxs, ri=>_calcIndividual(ri));
+    }catch(e){
+      clearInterval(pollTimer);
+      document.getElementById('btn-calc').disabled=false;
+      throw e;
+    }
+    if(_calculoCancelado) L('Calculo cancelado.');
 
     // Melhor particao conhecida (inicio = tudo separado). Guia a poda.
     let bestTotal = _avaliarParticoes()[0]?.total ?? Infinity;
 
-    // ── Fase B: grupos combinados com poda branch-and-bound ──
+    // ── Fase B: grupos combinados em PARALELO, com poda branch-and-bound ──
     // Combinar um grupo so vale se usar MENOS enfestos que mante-lo separado
     // (baseline) E que possa formar uma particao melhor que a atual (bestTotal).
-    // Qualquer combinacao com enfestos >= esse teto e dominada -> nem buscamos.
-    for(const grupo of subgrupos){
-      if(_calculoCancelado){ L('Calculo cancelado.'); break; }
-      step++;
+    // A poda e calculada NO INICIO de cada job (bestTotal pode ter melhorado
+    // com resultados que chegaram enquanto o job esperava na fila).
+    // Pares rodam antes dos trios: melhoram o bestTotal e apertam a poda.
+    async function _calcGrupo(grupo, gi){
+      const stepNo=N+gi+1;
       const key=[...grupo].sort((a,b)=>a-b).join(',');
       const rG=grupo.map(ri=>refs[ri].nome||`Ref ${ri+1}`).join(' + ');
       const lbl=rG.length>28?rG.substring(0,25)+'...':rG;
       _setEtapa(`g${key}`,lbl,'atual');
 
-      // Poda branch-and-bound (nunca descarta solucao melhor nem empate util):
-      //  - baseline-1: combinar so vale se usar MENOS enfestos que separar o grupo;
-      //  - bestTotal-1: qualquer particao melhor/igual usando o grupo precisa que
-      //    o combinado tenha <= bestTotal-1 enfestos.
       const temTodos = grupo.every(ri=>indiv[ri]!=null);
       const baselineG = temTodos ? grupo.reduce((s,ri)=>s+indiv[ri],0) : 99;
       const capGlobal = isFinite(bestTotal) ? (bestTotal - 1) : 99;
       const cap = Math.max(0, Math.min(baselineG-1, capGlobal));
 
       if(cap < 1){
-        L(`[${step}/${totalSteps}] ${rG}: combinar nao reduz enfestos (poda). Pulando.`);
-        cache[key]={erro:'sem ganho (poda)'}; _setEtapa(`g${key}`,'sem ganho','ok'); continue;
+        L(`[${stepNo}/${totalSteps}] ${rG}: combinar nao reduz enfestos (poda). Pulando.`);
+        cache[key]={erro:'sem ganho (poda)'}; _setEtapa(`g${key}`,'sem ganho','ok'); return;
       }
 
       const refsG=grupo.map(ri=>({
@@ -1082,28 +1124,40 @@ async function calcular(){
         consumo:(refs[ri].consumo&&refs[ri].consumo>0)?refs[ri].consumo:1.0645,
       }));
       const tG=tGrupoCalc(grupo);
-      L(`[${step}/${totalSteps}] ${rG} combinado (ate ${cap} enf., teto ${tG}s)...`);
+      L(`[${stepNo}/${totalSteps}] ${rG} combinado (ate ${cap} enf., teto ${tG}s)...`);
       if(!refsG.some(r=>Object.values(r.grade).some(g=>Object.values(g).some(v=>v>0)))){
-        cache[key]={erro:'Grade vazia'}; _setEtapa(`g${key}`,'Vazia','erro'); continue;
+        cache[key]={erro:'Grade vazia'}; _setEtapa(`g${key}`,'Vazia','erro'); return;
       }
+      const jid=JOB_ID+'-'+RUN_NONCE+'-g'+key.replace(/,/g,'_');
+      activeJobs.set(jid,lbl);
       try{
         const resp=await fetch('/calcular_grupo',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({...baseParams,refs:refsG,referencia:rG,timeout:tG,n_mapas_max:cap}),
+          body:JSON.stringify({...baseParams,refs:refsG,referencia:rG,timeout:tG,n_mapas_max:cap,job_id:jid}),
           signal:_abortCtrl.signal});
-        const d=await resp.json(); await _drainProgresso();
-        if(d.erro){ L('  Combinar nao ajuda este grupo'); cache[key]={erro:d.erro}; _setEtapa(`g${key}`,'sem ganho','ok'); }
+        const d=await resp.json(); await _drainJobMulti(jid,lbl);
+        if(d.erro){ L('  '+rG+': combinar nao ajuda'); cache[key]={erro:d.erro}; _setEtapa(`g${key}`,'sem ganho','ok'); }
         else { const n=d.solucoes[0].resumo.n_mapas;
           const tg=d.cache?'cache':Math.round(d.tempo_s||0)+'s';
-          L('  OK '+n+' enfesto(s) combinado(s) ('+tg+')'); cache[key]={nEnfestos:n,tipo:'multiref',data:d}; _setEtapa(`g${key}`,n+' enf.','ok');
+          L('  '+rG+': OK '+n+' enfesto(s) combinado(s) ('+tg+')'); cache[key]={nEnfestos:n,tipo:'multiref',data:d}; _setEtapa(`g${key}`,n+' enf.','ok');
           const novo=_avaliarParticoes()[0]?.total;
           if(novo!=null && novo<bestTotal){ bestTotal=novo; L('  -> melhor particao agora: '+bestTotal+' enfestos'); }
         }
       }catch(e){
-        if(e.name==='AbortError'){ L('Cancelado.'); cache[key]={erro:'Cancelado'}; break; }
-        L('  Erro: '+e.message); cache[key]={erro:e.message}; _setEtapa(`g${key}`,'Erro','erro');
-      }
+        if(e.name==='AbortError'){ cache[key]={erro:'Cancelado'}; _setEtapa(`g${key}`,'Cancelado','erro'); }
+        else { L('  '+rG+': erro '+e.message); cache[key]={erro:e.message}; _setEtapa(`g${key}`,'Erro','erro'); }
+      }finally{ activeJobs.delete(jid); }
     }
-
+    try{
+      const _pares=subgrupos.filter(g=>g.length===2);
+      const _trios=subgrupos.filter(g=>g.length>2);
+      await _promisePool(_pares, g=>_calcGrupo(g, subgrupos.indexOf(g)));
+      await _promisePool(_trios, g=>_calcGrupo(g, subgrupos.indexOf(g)));
+      if(_calculoCancelado) L('Calculo cancelado — jobs em andamento no servidor terminam sozinhos.');
+    }finally{
+      // o poller PRECISA morrer em qualquer caminho (senao fica batendo no
+      // /progresso para sempre) e o botao Calcular precisa voltar
+      clearInterval(pollTimer);
+    }
     document.getElementById('pbb').style.width='100%';
     document.getElementById('btn-cancel').style.display='none';
 
@@ -2238,6 +2292,20 @@ function _renderResultadoAlocacao(data) {
   html += _kpiAloc('Cores com deficit', cDef.join(', ')||'Nenhuma', cDef.length?'er':'ok');
   html += '</div>';
 
+  // Balanco de compra (v2.12): a conta que explica a compra recomendada
+  var rct = res.resumo_compra_total || null;
+  if (rct && (+rct.compra_recomendada_m||0) > 0) {
+    html += '<div class="g3" style="margin-bottom:10px">';
+    html += _kpiAloc('Necessario pelo plano', (+(rct.necessario_m||0)).toFixed(1)+'m');
+    html += _kpiAloc('Disponivel util (rolos c/ folga)', (+(rct.disponivel_seguro_m||0)).toFixed(1)+'m');
+    html += _kpiAloc('Compra recomendada', (+(rct.compra_recomendada_m||0)).toFixed(1)+'m', 'er');
+    html += '</div>';
+    html += '<div style="background:var(--sf2);border-radius:var(--r);padding:8px;margin-bottom:10px;font-size:11px;color:var(--tx2)">'
+          + 'Compra = falta liquida de tecido ('+(+(rct.falta_liquida_m||0)).toFixed(1)+'m = necessario &minus; disponivel util) '
+          + '+ fragmentacao ('+(+(rct.fragmentacao_m||0)).toFixed(1)+'m: sobras de rolo menores que uma camada inteira '
+          + '— emenda e proibida — mais as margens de faca).</div>';
+  }
+
   var alertasImp = (res.alertas||[]).filter(function(a){ return a.indexOf('CRITICO')>=0||a.indexOf('deficit')>=0; });
   if (alertasImp.length) {
     html += '<div style="background:var(--wnb);border:1px solid var(--wn);border-radius:var(--r);padding:8px;margin-bottom:10px;font-size:11px">';
@@ -2250,7 +2318,11 @@ function _renderResultadoAlocacao(data) {
     html += '<details style="margin-bottom:6px">';
     html += '<summary style="cursor:pointer;font-weight:600;padding:5px 8px;background:var(--sf2);border-radius:var(--r)">';
     html += cor+' &mdash; '+(cr.n_sub_enfestos||0)+' sub-enfesto(s), refugo '+(cr.refugo_percentual||0)+'%';
-    if (Object.keys(cr.camadas_em_deficit||{}).length) html += ' <span style="color:var(--er)">&#9888; deficit</span>';
+    var rcc = cr.resumo_compra || null;
+    if (rcc && (+rcc.compra_recomendada_m||0) > 0)
+      html += ' <span style="color:var(--er)">&#9888; comprar '+(+rcc.compra_recomendada_m).toFixed(1)
+            + 'm (falta '+(+rcc.falta_liquida_m).toFixed(1)+'m + pontas '+(+rcc.fragmentacao_m).toFixed(1)+'m)</span>';
+    else if (Object.keys(cr.camadas_em_deficit||{}).length) html += ' <span style="color:var(--er)">&#9888; deficit</span>';
     html += '</summary><div style="padding:8px;font-size:12px">';
     (cr.enfestos || []).forEach(function(e){
       var reap = (e.fontes||[]).some(function(f){return f.reaproveitada;});

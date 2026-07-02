@@ -1,6 +1,44 @@
-# Retomar — estado em 2026-06-25
+# Retomar — estado em 2026-07-02 (v2.12.0)
 
 Nota de handoff: onde o projeto está e como continuar. (Resumo durável; o detalhe de cada frente está nos specs/planos em `docs/superpowers/`.)
+
+## v2.12.0 (2026-07-02) — velocidade + agrupamento de verdade + alocação explicada
+Motivação: run real de 6 refs levou **~66min e achou 0 agrupamentos em 35** (falso
+negativo provado: 3 pares combinavam com 4 enfestos, verificado com solver exato
+CP-SAT offline — ortools NÃO vai para produção, foi só ground truth); a alocação
+recomendou compra de 1.453,8m sem explicar a conta (falta real era 1.149m).
+
+O que mudou (commit local; **push = deploy**, decisão do Diego):
+1. **Paralelismo real** (`engine/paralelo.py`): solves em ProcessPoolExecutor
+   (o GIL impedia threads de paralelizar), prioridade de CPU elevada nos workers
+   (ABOVE_NORMAL; `"prioridade_cpu": "alta"` no config.json → HIGH;
+   `"max_processos_calculo"` limita workers). `_calc_lock` removido; escritas
+   compartilhadas sob `_io_lock`. UI dispara individuais/pares/trios em ondas
+   paralelas (até 6 fetches; poller multiplexado por job com prefixo). Rota nova
+   GET `/paralelo` → `{workers}`.
+2. **Solver single-ref**: para assim que o primeiro nível completamente varrido
+   tem `num_opcoes` opções distintas (ordenação primária é n_mapas — o nível
+   seguinte nunca desloca o top; economiza ~140s/ref).
+3. **Multi-ref v2** (`solver_multiref.py` + `multiref_pool.py` + `multiref_local.py`):
+   piso de capacidade (prova matemática; níveis/grupos impossíveis morrem em ms),
+   pool de composições CONJUNTAS (vetores de peças × splits pela grade),
+   combinações COM repetição, folhas exatas por propagação de intervalos
+   (n pequeno), e **busca local guiada por violação** (hill-climbing
+   determinístico, moves direcionados pela pior violação, estagnação adaptativa)
+   — é ela que acha os agrupamentos "criativos". Pass 1 ascendente (varredura
+   ≤30s) + pass 2 descendente do teto (viabilidade ~monótona em n).
+4. **Alocador v3** (`alocador_rolos.py`): mochila (DP) por rolo em mm inteiros,
+   variantes desc/asc por cor (fica a de menor compra); flag `reaproveitada`
+   honesta (só sobra que não servia mais ao mapa anterior do mesmo rolo); bloco
+   `resumo_compra` por cor e `resumo_compra_total` no geral (necessário /
+   disponível útil / falta líquida / fragmentação) na UI e no Excel.
+
+Benchmark E2E (6 refs reais de 02/07, pelo servidor): **13 enfestos em 11,1min**
+vs 17 enfestos em ~66min do run real antigo (25/35 grupos combinam; partição
+vencedora [TERESA+LILIAN]+[C.MARILDA+CAM.MARILDA]+[KIARA+VERONICA]). Alocação
+real: compra 1.453,8m → **1.203,6m** (piso aritmético 1.149m). **119 testes verdes.**
+Nota: desvio dos combinados é maior que dos individuais (menos enfestos ↔ mais
+ajuste de grade) — a UI mostra as duas opções; o Diego escolhe.
 
 ## Estado atual
 - **Roadmap A–F + F-1 concluído e mergeado em `main`. Frente C REFORMULADA (alocador "enfesto por enfesto").** **105 testes pytest passando.** Backend verificado AO VIVO incl. `POST /alocar_rolos` real (enfesto-por-enfesto + reaproveitamento OK).

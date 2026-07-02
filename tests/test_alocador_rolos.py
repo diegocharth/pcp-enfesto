@@ -359,6 +359,36 @@ def test_resumo_geral_tem_reaproveitamento():
     assert "sugestoes_corte_total" not in rg
 
 
+def test_resumo_compra_por_cor_e_total():
+    """Bloco resumo_compra por cor + resumo_compra_total no resumo_geral;
+    alerta de compra da cor aparece ANTES dos alertas por mapa."""
+    plano = {"mapas": [{"id": 0, "composicao": {"M": 2}, "n_pecas": 2}],
+             "camadas": {"PRETO": {0: 20}}, "consumo_peca": 2.0}   # cc = 4.0
+    res = alocar_rolos(plano, {"PRETO": [10.0]}, dict(CONFIG_BASE))
+    cr = res["por_cor"]["PRETO"]
+    rc = cr["resumo_compra"]
+    for k in ("necessario_m", "disponivel_nominal_m", "disponivel_seguro_m",
+              "falta_liquida_m", "compra_recomendada_m", "fragmentacao_m"):
+        assert k in rc
+    # necessario 20 x 4.0 = 80; nominal 10; seguro 9.7 -> falta 70.3
+    assert abs(rc["necessario_m"] - 80.0) < 1e-6
+    assert abs(rc["disponivel_nominal_m"] - 10.0) < 1e-6
+    assert abs(rc["falta_liquida_m"] - 70.3) < 1e-6
+    assert abs(rc["compra_recomendada_m"] - cr["tecido_a_comprar_m"]) < 1e-6
+    # identidade: compra = falta liquida + fragmentacao (tolerancia 0.01)
+    assert abs(rc["compra_recomendada_m"]
+               - (rc["falta_liquida_m"] + rc["fragmentacao_m"])) < 0.01
+    tot = res["resumo_geral"]["resumo_compra_total"]
+    assert abs(tot["compra_recomendada_m"] - rc["compra_recomendada_m"]) < 1e-6
+    assert abs(tot["necessario_m"] - rc["necessario_m"]) < 1e-6
+    alertas = res["resumo_geral"]["alertas"]
+    idx_cor  = next(i for i, a in enumerate(alertas) if "compra recomendada" in a)
+    idx_mapa = next(i for i, a in enumerate(alertas) if "deficit" in a)
+    assert idx_cor < idx_mapa
+    assert alertas[idx_cor].startswith("PRETO:")
+    assert "fragmentacao" in alertas[idx_cor]
+
+
 def test_export_alocacao_tem_sobras_e_enfestos():
     import tempfile, openpyxl
     from exportar.export_xlsx import exportar_alocacao

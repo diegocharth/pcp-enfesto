@@ -1,12 +1,17 @@
 """
-PCP Enfestos -- Alocador de Rolos v2.0 (enfesto por enfesto)
-============================================================
+PCP Enfestos -- Alocador de Rolos v3.0 (atribuicao otima por rolo)
+==================================================================
 
-MODELO (v2): a alocacao processa os enfestos do mapa mais LONGO para o mais CURTO,
-por cor. A ponta que sobra de um enfesto e reaproveitada como camada inteira de um
-enfesto seguinte (mapa mais curto), sem emenda. A margem de faca e paga 1x por enfesto.
-Nunca cruza cor; nunca corta submapa parcial; so dentro do mesmo plano (sem estoque
-entre OPs). Ver engine/alocador_rolos.py::_alocar_cor e o spec
+MODELO (v3): a alocacao processa os ROLOS um a um (nas duas ordens: do mais longo
+para o mais curto e vice-versa, ficando com a ordem que exigir MENOR compra por
+cor). Para cada rolo, um problema de mochila limitada ("bounded knapsack", em
+milimetros inteiros) decide quantas camadas de cada mapa cortar daquele rolo de
+forma a aproveitar o maximo de tecido util -- substitui o greedy antigo
+"mapa mais longo primeiro", que deixava tecido encalhado em pontas inuteis.
+Regras fisicas inalteradas: camada inteira, sem emenda, margem de faca paga 1x
+por (mapa,cor) na fonte primaria, alocacao sempre contra o comp_seguro.
+Nunca cruza cor; nunca corta submapa parcial; so dentro do mesmo plano (sem
+estoque entre OPs). Ver engine/alocador_rolos.py::_alocar_cor e o spec
 docs/superpowers/specs/2026-06-25-alocador-enfesto-por-enfesto-design.md.
 
 GLOSSARIO (para leitura por nao-tecnicos)
@@ -59,6 +64,7 @@ PREMISSAS FIXAS (documentadas para quem for manter):
 """
 
 import math
+from functools import lru_cache
 
 
 # ---------------------------------------------------------------------------
@@ -77,77 +83,128 @@ def _comp_seguro(nominal, config):
     return max(0.0, float(nominal) * (1.0 - folga_pct))
 
 
-def _alocar_cor(demanda, comp_camada_por_id, rolos_cor, config):
-    """Aloca o tecido de UMA cor pelo modelo enfesto-por-enfesto com
-    reaproveitamento de ponta (so camada inteira, sem emenda, margem 1x/enfesto,
-    greedy mapa-longo-primeiro). Funcao pura."""
+def _resolver_rolo_dp(cap_mm, itens_mm, rem, margem_mm, margem_pendente):
+    """
+    Mochila limitada ("bounded knapsack") de UM rolo, em milimetros inteiros.
+
+    Decide quantas camadas de cada mapa cortar deste rolo de forma a maximizar
+    os metros uteis aproveitados (camadas x comprimento da camada). O custo de
+    k camadas de um mapa e k*cc_mm, mais a margem de faca (margem_mm) quando o
+    mapa ainda nao pagou margem em nenhum rolo -- nesse caso este rolo vira a
+    fonte "primaria" do mapa. Recursao com memoizacao (sem tabela densa).
+    Retorna {mapa_id: n_camadas} apenas com escolhas > 0.
+    """
+    mids = [mid for mid, l in itens_mm if l > 0 and rem.get(mid, 0) > 0]
+    lens = dict(itens_mm)
+
+    @lru_cache(maxsize=None)
+    def rec(i, cap):
+        if i >= len(mids):
+            return 0, ()
+        mid = mids[i]
+        comp = lens[mid]
+        melhor, escolha = rec(i + 1, cap)
+        max_k = min(rem[mid], cap // comp)
+        for k in range(1, max_k + 1):
+            custo = k * comp + (margem_mm if mid in margem_pendente else 0)
+            if custo > cap:
+                break
+            sub, sub_esc = rec(i + 1, cap - custo)
+            if sub + k * comp > melhor:
+                melhor, escolha = sub + k * comp, sub_esc + ((mid, k),)
+        return melhor, escolha
+
+    _, escolha = rec(0, max(0, int(cap_mm)))
+    rec.cache_clear()
+    return dict(escolha)
+
+
+def _alocar_cor_ordem(demanda, comp_camada_por_id, rolos_cor, config, crescente):
+    """
+    Aloca UMA cor processando os rolos numa ordem fixa (decrescente ou
+    crescente de comprimento seguro), resolvendo uma mochila limitada por rolo.
+    Devolve o resultado no contrato de _alocar_cor (sem o bloco resumo_compra,
+    que e adicionado pelo chamador). Funcao pura.
+    """
     margem    = float(config.get("margem_seguranca_enfesto_m", 0.10))
     ponta_min = float(config.get("ponta_minima_util_m", 0.5))
-    _EPS = 1e-4
+    # margem em mm arredondada para CIMA: nunca subestima o consumo real.
+    margem_mm = int(math.ceil(margem * 1000 - 1e-6))
+    _EPS = 1e-9
 
-    # Estado por rolo-raiz: peca atual no pool (restante_m) + origem.
-    rolos = []   # [{rolo_indice, nominal_m, seguro_m, restante_m, origem, enfesto_origem}]
+    # Ordem canonica dos enfestos na saida: cc desc; empate -> maior demanda.
+    ordem = sorted(demanda.keys(),
+                   key=lambda m: (-comp_camada_por_id.get(m, 0.0), -demanda[m]))
+
+    rolos = []   # estado por rolo: restante + ultimo mapa servido (p/ flag honesta)
     for i, nom in enumerate(rolos_cor):
         seguro = round(_comp_seguro(nom, config), 6)
         rolos.append({
             "rolo_indice": i + 1, "nominal_m": float(nom), "seguro_m": seguro,
             "restante_m": seguro,
-            "origem": "rolo", "enfesto_origem": None,
+            "cap_mm": int(math.floor(seguro * 1000 + 1e-6)),  # capacidade p/ baixo
+            "ultimo_mapa": None, "ultima_cc": 0.0,
         })
 
-    camadas_alocadas = {mid: 0 for mid in demanda}
-    enfestos = []
+    # Camada em mm inteiros, arredondada para CIMA (conservador: mm >= metros).
+    cc_mm = {mid: int(math.ceil(float(comp_camada_por_id.get(mid, 0.0)) * 1000 - 1e-6))
+             for mid in demanda}
+    itens_mm = [(mid, cc_mm[mid]) for mid in ordem]
 
-    # Ordem de corte: mapa mais longo primeiro; empate -> maior demanda.
-    ordem = sorted(demanda.keys(),
-                   key=lambda m: (-comp_camada_por_id.get(m, 0.0), -demanda[m]))
+    rem = {mid: int(demanda[mid]) for mid in demanda}
+    margem_pendente = {mid for mid in demanda if cc_mm[mid] > 0 and rem[mid] > 0}
+    fontes_por_mapa = {mid: [] for mid in demanda}
 
+    seq = sorted(rolos, key=lambda r: r["seguro_m"], reverse=not crescente)
+    for r in seq:
+        if all(v <= 0 for v in rem.values()):
+            break
+        escolha = _resolver_rolo_dp(r["cap_mm"], itens_mm, rem, margem_mm,
+                                    frozenset(margem_pendente))
+        # Dentro do rolo o corte segue a ordem dos enfestos (mais longo primeiro).
+        for mid in ordem:
+            k = escolha.get(mid, 0)
+            if k <= 0:
+                continue
+            cc = float(comp_camada_por_id.get(mid, 0.0))
+            eh_primaria = mid in margem_pendente
+            overhead = margem if eh_primaria else 0.0
+            # Flag HONESTA: reaproveitamento real exige que o rolo ja tenha
+            # servido um mapa mais longo E que a sobra no momento do uso ja nao
+            # servisse a esse mapa anterior (restante < camada do mapa anterior).
+            prev_mid, prev_cc = r["ultimo_mapa"], r["ultima_cc"]
+            reap = (prev_mid is not None and prev_cc > cc + _EPS
+                    and r["restante_m"] < prev_cc - _EPS)
+            fontes_por_mapa[mid].append({
+                "tipo": "ponta" if reap else "rolo",
+                "rolo_indice": r["rolo_indice"],
+                "enfesto_origem": prev_mid if reap else None,
+                "n_camadas": k, "comp_camada_m": round(cc, 4),
+                "comp_usado_m": round(k * cc + overhead, 4),
+                "primaria": eh_primaria, "reaproveitada": reap,
+            })
+            r["restante_m"] = round(r["restante_m"] - (k * cc + overhead), 6)
+            r["ultimo_mapa"], r["ultima_cc"] = mid, cc
+            if eh_primaria:
+                margem_pendente.discard(mid)
+            rem[mid] -= k
+
+    enfestos, camadas_alocadas = [], {}
     for mid in ordem:
         cc = float(comp_camada_por_id.get(mid, 0.0))
         K  = int(demanda[mid])
-        cobertas = 0
-        fontes = []
-        if cc > 0 and K > 0:
-            # Pool ordenado: pontas antes de rolos novos; depois maior restante.
-            disponiveis = [r for r in rolos if r["restante_m"] > 0]
-            disponiveis.sort(key=lambda r: (r["origem"] == "rolo", -r["restante_m"]))
-            # Fonte primaria = primeiro pedaco com restante >= cc + margem.
-            primaria = next((r for r in disponiveis
-                             if r["restante_m"] + _EPS >= cc + margem), None)
-            if primaria is not None:
-                for r in disponiveis:
-                    if cobertas >= K:
-                        break
-                    eh_primaria = (r is primaria)
-                    overhead = margem if eh_primaria else 0.0
-                    cap = int(math.floor((r["restante_m"] - overhead + _EPS) / cc))
-                    if cap <= 0:
-                        continue
-                    k = min(cap, K - cobertas)
-                    consumo = k * cc + overhead
-                    fontes.append({
-                        "tipo": r["origem"], "rolo_indice": r["rolo_indice"],
-                        "enfesto_origem": r["enfesto_origem"],
-                        "n_camadas": k, "comp_camada_m": round(cc, 4),
-                        "comp_usado_m": round(consumo, 4),
-                        "primaria": eh_primaria, "reaproveitada": r["origem"] == "ponta",
-                    })
-                    r["restante_m"] = round(r["restante_m"] - consumo, 6)
-                    r["origem"] = "ponta"          # apos uso, vira ponta reaproveitavel
-                    r["enfesto_origem"] = mid
-                    cobertas += k
+        cobertas = K - rem[mid]
         camadas_alocadas[mid] = cobertas
-        deficit_e = K - cobertas
         enfestos.append({
             "mapa_id": mid, "comp_camada_m": round(cc, 4),
             "camadas_necessarias": K, "camadas_cobertas": cobertas,
-            "camadas_em_deficit": deficit_e, "margem_m": round(margem, 4),
+            "camadas_em_deficit": K - cobertas, "margem_m": round(margem, 4),
             "tecido_usado_m": round(cobertas * cc + (margem if cobertas > 0 else 0.0), 4),
-            "tecido_a_comprar_m": round(deficit_e * cc, 4),
-            "fontes": fontes,
+            "tecido_a_comprar_m": round((K - cobertas) * cc, 4),
+            "fontes": fontes_por_mapa[mid],
         })
 
-    # Resumo por rolo (estado final).
+    # Resumo por rolo (estado final), na ordem original dos rolos.
     rolos_out, ponta_est, refugo_real, nom_total = [], 0.0, 0.0, 0.0
     for r in rolos:
         ponta = round(max(0.0, r["restante_m"]), 4)
@@ -185,6 +242,46 @@ def _alocar_cor(demanda, comp_camada_por_id, rolos_cor, config):
     }
 
 
+def _alocar_cor(demanda, comp_camada_por_id, rolos_cor, config):
+    """Aloca o tecido de UMA cor pelo modelo enfesto-por-enfesto com atribuicao
+    otima por rolo (mochila limitada em mm inteiros): camada inteira, sem emenda,
+    margem 1x por (mapa,cor) na fonte primaria, sempre contra o comp_seguro.
+    Processa os rolos nas DUAS ordens (decrescente e crescente de comprimento
+    seguro) e fica com a que resultar em MENOR compra; empate -> menor refugo,
+    depois menos fontes. Funcao pura."""
+    res = _alocar_cor_ordem(demanda, comp_camada_por_id, rolos_cor, config,
+                            crescente=False)
+    if len(rolos_cor) > 1:
+        alt = _alocar_cor_ordem(demanda, comp_camada_por_id, rolos_cor, config,
+                                crescente=True)
+
+        def _chave(r):
+            return (r["tecido_a_comprar_m"], r["refugo_real_m"],
+                    sum(len(e["fontes"]) for e in r["enfestos"]))
+
+        if _chave(alt) < _chave(res):
+            res = alt
+
+    # Bloco resumo_compra: visao de compra da cor (necessidade x disponibilidade).
+    # fragmentacao_m = quanto da compra existe so porque as pontas dos rolos
+    # ficaram curtas demais para receber camadas inteiras.
+    necessario = sum(int(demanda[m]) * float(comp_camada_por_id.get(m, 0.0))
+                     for m in demanda)
+    disp_nom = sum(float(n) for n in rolos_cor)
+    disp_seg = sum(_comp_seguro(n, config) for n in rolos_cor)
+    falta  = max(0.0, necessario - disp_seg)
+    compra = res["tecido_a_comprar_m"]
+    res["resumo_compra"] = {
+        "necessario_m": round(necessario, 3),
+        "disponivel_nominal_m": round(disp_nom, 3),
+        "disponivel_seguro_m": round(disp_seg, 3),
+        "falta_liquida_m": round(falta, 3),
+        "compra_recomendada_m": round(compra, 3),
+        "fragmentacao_m": round(max(0.0, compra - falta), 3),
+    }
+    return res
+
+
 def _validar_entradas(plano, config):
     """Valida parametros obrigatorios. Lanca ValueError com mensagem clara."""
     consumo = float(plano.get("consumo_peca", 0))
@@ -211,9 +308,10 @@ def alocar_rolos(plano, rolos, config):
     Aloca rolos de tecido para cobrir a demanda de camadas do plano de corte.
 
     Algoritmo: para cada cor delega a alocacao a _alocar_cor (modelo
-    enfesto-por-enfesto com reaproveitamento de ponta, camada inteira sem emenda,
-    margem 1x por enfesto, greedy mapa-longo-primeiro) e consolida os totais,
-    alertas e sobras no resumo_geral.
+    enfesto-por-enfesto com atribuicao otima por rolo via mochila limitada,
+    camada inteira sem emenda, margem 1x por enfesto, rolos processados na
+    ordem -- decrescente ou crescente de comprimento seguro -- que exigir a
+    menor compra) e consolida os totais, alertas e sobras no resumo_geral.
 
     Args:
         plano: {
@@ -246,6 +344,9 @@ def alocar_rolos(plano, rolos, config):
                     "n_sub_enfestos":      int,
                     "reaproveitamento": {"camadas_reaproveitadas": int,
                                          "tecido_economizado_m": float},
+                    "resumo_compra": {"necessario_m", "disponivel_nominal_m",
+                                      "disponivel_seguro_m", "falta_liquida_m",
+                                      "compra_recomendada_m", "fragmentacao_m"},
                 }
             },
             "resumo_geral": {
@@ -255,6 +356,7 @@ def alocar_rolos(plano, rolos, config):
                 "camadas_reaproveitadas_total", "tecido_economizado_total_m",
                 "sobras_consolidado",      # por cor: {ponta_estoque_m, refugo_m,
                                            #   n_pontas_estoque}
+                "resumo_compra_total",     # mesmos campos de resumo_compra, somados
                 "alertas"
             }
         }
@@ -313,6 +415,15 @@ def alocar_rolos(plano, rolos, config):
                     )
             cr = _alocar_cor(demanda, comp_camada_por_id, rolos_cor, config)
 
+        # Alerta de compra por cor (antes dos alertas por mapa).
+        if cr["camadas_em_deficit"]:
+            rc = cr["resumo_compra"]
+            alertas.append(
+                f"{cor}: necessario {rc['necessario_m']:.1f}m, disponivel util "
+                f"{rc['disponivel_seguro_m']:.1f}m -> falta {rc['falta_liquida_m']:.1f}m; "
+                f"compra recomendada {rc['compra_recomendada_m']:.1f}m "
+                f"(inclui {rc['fragmentacao_m']:.1f}m por fragmentacao de pontas)."
+            )
         for mid, n in cr["camadas_em_deficit"].items():
             cc = comp_camada_por_id.get(mid, 0.0)
             alertas.append(f"{cor}: deficit de {n} camada(s) do mapa {mid} -- "
@@ -331,6 +442,8 @@ def alocar_rolos(plano, rolos, config):
                           for res in resultado_por_cor.values() for r in res["rolos"])
     refugo_medio = (round(100 * acc["refugo_real_total_m"] / nom_total_geral, 2)
                     if nom_total_geral > 0 else 0.0)
+    campos_compra = ("necessario_m", "disponivel_nominal_m", "disponivel_seguro_m",
+                     "falta_liquida_m", "compra_recomendada_m", "fragmentacao_m")
     resumo_geral = {
         "tecido_usado_total_m"     : round(acc["tecido_usado_total_m"], 3),
         "ponta_estoque_total_m"    : round(acc["ponta_estoque_total_m"], 3),
@@ -351,6 +464,11 @@ def alocar_rolos(plano, rolos, config):
                 "n_pontas_estoque": sum(1 for r in res["rolos"]
                                         if r["ponta_classe"] == "estoque" and r["ponta_m"] > 0),
             } for c, res in resultado_por_cor.items()
+        },
+        "resumo_compra_total": {
+            campo: round(sum(res["resumo_compra"][campo]
+                             for res in resultado_por_cor.values()), 3)
+            for campo in campos_compra
         },
         "alertas": alertas,
     }

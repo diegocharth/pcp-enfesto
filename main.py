@@ -1,7 +1,27 @@
 #!/usr/bin/env python3
 """
-PCP Enfestos v2.11.0
+PCP Enfestos v2.12.0
 Changelog:
+  v2.12.0 - VELOCIDADE + AGRUPAMENTO DE VERDADE + ALOCACAO EXPLICADA.
+            (1) Paralelismo real: solves rodam em PROCESSOS workers
+            (engine/paralelo.py) com prioridade de CPU elevada; a UI dispara
+            individuais e grupos em ondas paralelas (multi-ref de 6 refs:
+            ~1h -> minutos). (2) Solver single-ref para assim que o primeiro
+            nivel completo tem opcoes suficientes (era ~140s/ref perdidos
+            varrendo o nivel seguinte inteiro a toa). (3) Multi-ref v2:
+            piso de capacidade (prova matematica descarta niveis/grupos
+            impossiveis em ms), pool de composicoes CONJUNTAS (vetores de
+            pecas x splits pela grade), combinacoes com repeticao, folhas
+            exatas por propagacao de intervalos e BUSCA LOCAL guiada por
+            violacao (multiref_local.py) -- acha agrupamentos que o pool
+            estatico nunca continha (caso real: 3 pares "sem solucao" na
+            v2.11 combinam com 4 enfestos, provado por solver exato).
+            (4) Alocador de rolos v3: atribuicao por mochila (DP) por rolo
+            reduz a compra recomendada (caso real: 1.453,8m -> 1.203,6m);
+            KPI de reaproveitamento honesto (so conta sobra que nao servia
+            mais ao mapa anterior); bloco "resumo_compra" por cor e total
+            (necessario vs disponivel util vs falta liquida vs fragmentacao)
+            na UI e no Excel -- a compra agora vem com a conta explicada.
   v2.11.0 - Frentes A-F + F-1, e Frente C REFORMULADA. A: download duplicado corrigido,
             resultado some ao mudar parametro, todos os params no Excel. B: rolos em celulas
             (Tab/colar), % nas tolerancias especiais. C -- ALOCADOR "ENFESTO POR ENFESTO":
@@ -55,7 +75,7 @@ from urllib.parse import urlparse
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
-VERSION      = "2.11.4"
+VERSION      = "2.12.0"
 CORES_FILE        = os.path.join(BASE_DIR, "dados", "cores_salvas.json")
 PARAMS_FILE       = os.path.join(BASE_DIR, "dados", "parametros_salvos.json")
 PID_FILE          = os.path.join(BASE_DIR, "dados", "servidor.pid")
@@ -68,12 +88,19 @@ import logging
 from logging.handlers import RotatingFileHandler
 
 def _setup_logger():
-    log_dir = os.path.join(BASE_DIR, "dados", "logs")
-    os.makedirs(log_dir, exist_ok=True)
     lg = logging.getLogger("pcp")
     if lg.handlers:
         return lg
     lg.setLevel(logging.INFO)
+    # v2.12: os workers do pool (spawn) reimportam este modulo (__mp_main__).
+    # Eles NAO podem abrir o pcp.log — 12 handles no mesmo arquivo quebram a
+    # rotacao do RotatingFileHandler no Windows e o servidor perde os logs.
+    import multiprocessing as _mp0
+    if _mp0.parent_process() is not None:
+        lg.addHandler(logging.NullHandler())
+        return lg
+    log_dir = os.path.join(BASE_DIR, "dados", "logs")
+    os.makedirs(log_dir, exist_ok=True)
     h = RotatingFileHandler(os.path.join(log_dir, "pcp.log"),
                             maxBytes=1_000_000, backupCount=3, encoding="utf-8")
     h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
@@ -91,6 +118,8 @@ def _importar():
     global carregar_mapa_cores, salvar_mapa_cores_fn
     global checar_atualizacao_fn, sinalizar_update_fn
     global CachePlanos, assinatura_calc
+    global paralelo
+    from engine import paralelo
     from engine.solver              import resolver
     from engine.cache_planos        import CachePlanos, assinatura as assinatura_calc
     from engine.tolerancia          import calcular_limites_grade
@@ -242,12 +271,13 @@ _progressos = {}                 # job_id -> list[str]
 _progresso_lock = threading.Lock()
 _PROGRESSO_MAX_JOBS = 50          # teto p/ nao crescer sem limite (GC simples)
 
-# Serializa cálculos por POLÍTICA (single-user desktop, CPU-bound): dois cálculos
-# simultâneos só competiriam por CPU e deixariam ambos mais lentos. O solver NÃO usa
-# mais estado global compartilhado (F-1: históricos e estado de retomada passam por
-# parâmetros historicos=/resume_out=), então o lock não é mais necessário para
-# correção — é uma escolha de serialização. Mantido durante todo o cálculo.
-_calc_lock = threading.Lock()
+# v2.12: os solves rodam em PROCESSOS workers (engine/paralelo.py) — o GIL
+# impedia paralelismo real com threads e o antigo _calc_lock serializava tudo
+# (multi-ref de 6 refs = 41 jobs em fila unica = ~1h). Agora varios jobs rodam
+# ao mesmo tempo com prioridade de CPU elevada nos workers. O que precisa de
+# protecao entre threads do servidor sao as ESCRITAS compartilhadas (params,
+# cores, cache, historico) -> _io_lock.
+_io_lock = threading.Lock()
 
 def _reset_job(job_id):
     with _progresso_lock:
@@ -334,7 +364,13 @@ class Handler(BaseHTTPRequestHandler):
             self._baixar_arquivo()
         elif path == "/aprendizado":
             # Tempos medianos aprendidos por classe de problema (para a ETA realista).
-            self._send(200, {"tempos": _CACHE.estimativas()})
+            # Sob _io_lock: registrar_tempo pode inserir chaves em paralelo (v2.12).
+            with _io_lock:
+                est = _CACHE.estimativas()
+            self._send(200, {"tempos": est})
+        elif path == "/paralelo":
+            # Quantos solves simultaneos o backend suporta (p/ a UI dosar os fetches).
+            self._send(200, {"workers": paralelo.n_workers()})
         else:
             self.send_response(404); self.end_headers()
 
@@ -389,24 +425,25 @@ class Handler(BaseHTTPRequestHandler):
         # efetivo desta chamada -- no modo multi-ref cada ref roda com um timeout
         # estrangulado (tI), que nao deve virar o padrao salvo. Sem timeout_ui
         # (single-ref), o proprio timeout ja e o valor da UI.
-        salvar_params({
-            "consumo": p.get("consumo", 1.0645),
-            "mesa": p.get("mesa", 10.0),
-            "max_folhas": p.get("max_folhas", 70),
-            "num_opcoes": p.get("num_opcoes", 2),
-            "tol_abs": p.get("tol_abs", 4),
-            "tol_pct": p.get("tol_pct", 20),
-            "criterio": p.get("criterio", "MIN"),
-            "timeout": _num(p, "timeout_ui", timeout, int),
-            "tamanhos": tamanhos,
-            "regras_especiais": regras,
-        })
+        with _io_lock:
+            salvar_params({
+                "consumo": p.get("consumo", 1.0645),
+                "mesa": p.get("mesa", 10.0),
+                "max_folhas": p.get("max_folhas", 70),
+                "num_opcoes": p.get("num_opcoes", 2),
+                "tol_abs": p.get("tol_abs", 4),
+                "tol_pct": p.get("tol_pct", 20),
+                "criterio": p.get("criterio", "MIN"),
+                "timeout": _num(p, "timeout_ui", timeout, int),
+                "tamanhos": tamanhos,
+                "regras_especiais": regras,
+            })
 
-        # Salvar cores usadas (extrair só a cor, sem prefixo de referência "Ref|Cor")
-        cores_brutas = list(grade.keys())
-        cores_limpas = list({c.split("|")[-1] for c in cores_brutas})
-        cores_usadas = cores_limpas + carregar_cores_salvas()
-        salvar_cores_arquivo(cores_usadas)
+            # Salvar cores usadas (extrair só a cor, sem prefixo "Ref|Cor")
+            cores_brutas = list(grade.keys())
+            cores_limpas = list({c.split("|")[-1] for c in cores_brutas})
+            cores_usadas = cores_limpas + carregar_cores_salvas()
+            salvar_cores_arquivo(cores_usadas)
 
         limites  = calcular_limites_grade(grade, tamanhos, cfg, regras)
 
@@ -441,30 +478,24 @@ class Handler(BaseHTTPRequestHandler):
             logs.append(msg)
             _add_progresso(job_id, msg)
 
-        # Cálculo sob lock: serializa para nao competir por CPU (single-user desktop).
-        # O estado de retomada e os mapas historicos agora passam por parametros
-        # (resume_out / historicos), nao mais por estado global.
+        # v2.12: solve num processo worker (paralelismo real + prioridade de CPU;
+        # o GIL impedia paralelismo com threads). Varios calculos podem rodar ao
+        # mesmo tempo — um por worker do pool.
         _t0 = time.time()
-        if not _calc_lock.acquire(blocking=False):
-            _add_progresso(job_id, "Aguardando outro calculo terminar (na fila)...")
-            _calc_lock.acquire()
-        try:
-            _resume = {}
-            solucoes = resolver(grade, tamanhos, limites, cfg,
-                                callback_progresso=cb, timeout_s=timeout,
-                                min_n_mapas=min_n_mapas, skip_combos=skip_combos,
-                                historicos=historicos, resume_out=_resume)
-            r_niveis = _resume.get('niveis_esgotados', [])
-            r_prox   = _resume.get('proximo_n', 1)
-            r_skip   = _resume.get('skip_combos', 0)
-        finally:
-            _calc_lock.release()
+        solucoes, _resume = paralelo.executar_solve("single", dict(
+            grade=grade, tamanhos=tamanhos, limites=limites, config=cfg,
+            timeout_s=timeout, min_n_mapas=min_n_mapas, skip_combos=skip_combos,
+            historicos=historicos), cb)
+        r_niveis = _resume.get('niveis_esgotados', [])
+        r_prox   = _resume.get('proximo_n', 1)
+        r_skip   = _resume.get('skip_combos', 0)
         _elapsed = time.time() - _t0
         # Aprende o tempo real SO de buscas que terminaram (r_skip==0 = nao cortada
         # por timeout). Tempo de busca cortada enviesaria a mediana para baixo e o
         # teto adaptativo passaria a cortar buscas boas antes da hora.
         if usa_cache and r_skip == 0:
-            _CACHE.registrar_tempo(_bucket_single(grade), _elapsed)
+            with _io_lock:
+                _CACHE.registrar_tempo(_bucket_single(grade), _elapsed)
 
         if not solucoes:
             self._send(200, {
@@ -483,7 +514,8 @@ class Handler(BaseHTTPRequestHandler):
             # mapas pode ser lista de dicts ou lista de dicts com valores int
             desvio_melhor    = int(melhor.get("resumo", {}).get("desvio_total", 9999))
             if mapas_vencedores:
-                salvar_historico(fp, mapas_vencedores, desvio_melhor)
+                with _io_lock:
+                    salvar_historico(fp, mapas_vencedores, desvio_melhor)
         except Exception:
             pass  # nunca bloquear o resultado por falha no histórico
 
@@ -506,7 +538,8 @@ class Handler(BaseHTTPRequestHandler):
         # por timeout no meio de um nivel). Resultado parcial nunca e cacheado,
         # para que "Continuar" com mais tempo possa melhora-lo.
         if usa_cache and r_skip == 0:
-            _CACHE.guardar(sig, resp, _elapsed)
+            with _io_lock:
+                _CACHE.guardar(sig, resp, _elapsed)
         self._send(200, {**resp, "referencia": referencia, "log": logs, "tempo_s": round(_elapsed, 2)})
 
     def _exportar(self, p):
@@ -528,14 +561,16 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, {"caminho": caminho, "nome": os.path.basename(caminho)})
 
     def _salvar_cores(self, p):
-        salvar_cores_arquivo(p.get("cores", []))
+        with _io_lock:
+            salvar_cores_arquivo(p.get("cores", []))
         self._send(200, {"ok": True})
 
     def _salvar_params(self, p):
         # Salva apenas parâmetros da UI (não grade)
-        params_atuais = carregar_params_salvos()
-        params_atuais.update(p)
-        salvar_params(params_atuais)
+        with _io_lock:
+            params_atuais = carregar_params_salvos()
+            params_atuais.update(p)
+            salvar_params(params_atuais)
         self._send(200, {"ok": True})
 
     def _upload(self, p):
@@ -587,7 +622,8 @@ class Handler(BaseHTTPRequestHandler):
 
         # Salvar cores usadas
         todas_cores = list({c for r in refs_data for c in r["grade"]})
-        salvar_cores_arquivo(todas_cores + carregar_cores_salvas())
+        with _io_lock:
+            salvar_cores_arquivo(todas_cores + carregar_cores_salvas())
 
         # ── Cache: agrupamento identico e instantaneo ───────────────────────
         sig = assinatura_calc({
@@ -612,26 +648,18 @@ class Handler(BaseHTTPRequestHandler):
             logs.append(msg)
             _add_progresso(job_id, msg)
 
-        # Mesmo lock do cálculo single-ref: serializa para não interleavar progresso
-        # nem competir por CPU. O estado de retomada agora passa por parametro
-        # (resume_out), nao mais por estado global do solver.
+        # v2.12: solve num processo worker (paralelismo real + prioridade de CPU).
         _t0 = time.time()
-        if not _calc_lock.acquire(blocking=False):
-            _add_progresso(job_id, "Aguardando outro calculo terminar (na fila)...")
-            _calc_lock.acquire()
-        try:
-            _resume_g = {}
-            solucoes = resolver_multiref(refs_data, tamanhos, cfg,
-                                         callback=cb, timeout_s=timeout,
-                                         n_mapas_max=n_mapas_max, resume_out=_resume_g)
-            # Sinal exato do solver: a busca convergiu ou foi cortada pelo timeout?
-            # (mesma estrategia do single-ref, que usa r_skip==0 -- evita vies na ETA)
-            _convergiu = _resume_g.get('convergiu', True)
-        finally:
-            _calc_lock.release()
+        solucoes, _resume_g = paralelo.executar_solve("multiref", dict(
+            refs_data=refs_data, tamanhos=tamanhos, config=cfg,
+            timeout_s=timeout, n_mapas_max=n_mapas_max), cb)
+        # Sinal exato do solver: a busca convergiu ou foi cortada pelo timeout?
+        # (mesma estrategia do single-ref, que usa r_skip==0 -- evita vies na ETA)
+        _convergiu = _resume_g.get('convergiu', True)
         _elapsed = time.time() - _t0
         if _convergiu:
-            _CACHE.registrar_tempo(_bucket_grupo(len(refs_data), n_cores), _elapsed)
+            with _io_lock:
+                _CACHE.registrar_tempo(_bucket_grupo(len(refs_data), n_cores), _elapsed)
 
         if not solucoes:
             self._send(200, {"erro": "Nenhuma solução combinada encontrada. Tente aumentar timeout ou tolerância.",
@@ -655,7 +683,8 @@ class Handler(BaseHTTPRequestHandler):
         # Cacheia apenas quando convergiu antes do teto de tempo. Se usou quase
         # todo o orcamento, a busca pode ter sido cortada -> nao congela parcial.
         if _convergiu:
-            _CACHE.guardar(sig, resp, _elapsed)
+            with _io_lock:
+                _CACHE.guardar(sig, resp, _elapsed)
         self._send(200, {**resp, "referencia": referencia, "log": logs, "tempo_s": round(_elapsed, 2)})
 
     def _exportar_particao(self, p):
@@ -834,7 +863,8 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         try:
-            novo = adicionar_mapeamento_fn(cor_forn, cor_com, MAPA_CORES_FILE)
+            with _io_lock:
+                novo = adicionar_mapeamento_fn(cor_forn, cor_com, MAPA_CORES_FILE)
             self._send(200, {"ok": True, "novo": novo})
         except ValueError as e:
             self._send(409, {"erro": str(e)})
@@ -880,6 +910,10 @@ _servidor_ref = None
 def _encerrar_servidor():
     time.sleep(0.5)
     remover_pid()
+    try:
+        paralelo.encerrar()  # derruba workers do pool (nao deixa processos orfaos)
+    except Exception:
+        pass
     if _servidor_ref:
         _servidor_ref.shutdown()
     os._exit(0)
@@ -911,6 +945,14 @@ def _matar_zumbi_porta(porta):
 def main():
     global _servidor_ref
     _ensure_dados()
+    # Pool de calculo: prioridade dos workers via config ("prioridade_cpu":
+    # "alta" -> HIGH; default acima do normal) e teto de workers opcional.
+    try:
+        cfg0 = carregar_config()
+        paralelo.configurar(prioridade=cfg0.get("prioridade_cpu"),
+                            max_workers=cfg0.get("max_processos_calculo"))
+    except Exception:
+        pass
     porta = 5050
     try:
         servidor = ThreadingHTTPServer(("localhost", porta), Handler)

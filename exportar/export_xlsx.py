@@ -1176,6 +1176,30 @@ def _aba_resumo_alocacao(wb, resultado, referencia, params=None):
         _cel(ws, r, 2, valor, alinha="right")
         r += 1
 
+    # Balanco de compra (v2.12): explica POR QUE comprar — necessario vs
+    # disponivel util, falta liquida e a parcela de fragmentacao de pontas.
+    rc = resumo.get("resumo_compra_total") or {}
+    if rc:
+        r += 1
+        _cel(ws, r, 1, "Balanco de compra", negrito=True, fundo=C_AZUL_MED, cor_txt=C_BRANCO)
+        ws.merge_cells(f"A{r}:B{r}")
+        r += 1
+        linhas_rc = [
+            ("Necessario pelo plano (m)",        rc.get("necessario_m", 0)),
+            ("Disponivel nos rolos (m nominal)", rc.get("disponivel_nominal_m", 0)),
+            ("Disponivel util (m, com folga)",   rc.get("disponivel_seguro_m", 0)),
+            ("Falta liquida (m)",                rc.get("falta_liquida_m", 0)),
+            ("Compra recomendada (m)",           rc.get("compra_recomendada_m", 0)),
+            ("  ...da qual fragmentacao + margens (m)", rc.get("fragmentacao_m", 0)),
+        ]
+        for label, valor in linhas_rc:
+            destaque = label.startswith("Compra") and (valor or 0) > 0
+            _cel(ws, r, 1, label, negrito=True,
+                 fundo=C_VERMELHO if destaque else C_CINZA_HDR,
+                 cor_txt=C_VERM_TX if destaque else None)
+            _cel(ws, r, 2, valor, alinha="right")
+            r += 1
+
     cores_deficit = resumo.get("cores_com_deficit", [])
     if cores_deficit:
         r += 1
@@ -1227,6 +1251,18 @@ def _aba_cor_alocacao(wb, cor, cor_res):
         fundo = C_VERMELHO if label == "Tecido a comprar (m)" and valor > 0 else C_CINZA_HDR
         _cel(ws, r, 1, label, negrito=True, fundo=fundo)
         _cel(ws, r, 2, valor, alinha="right")
+        r += 1
+
+    # Balanco de compra da cor (v2.12)
+    rc = cor_res.get("resumo_compra") or {}
+    if rc:
+        _cel(ws, r, 1, "Necessario / disponivel util (m)", negrito=True, fundo=C_CINZA_HDR)
+        _cel(ws, r, 2, f"{rc.get('necessario_m', 0)} / {rc.get('disponivel_seguro_m', 0)}",
+             alinha="right")
+        r += 1
+        _cel(ws, r, 1, "Falta liquida + fragmentacao (m)", negrito=True, fundo=C_CINZA_HDR)
+        _cel(ws, r, 2, f"{rc.get('falta_liquida_m', 0)} + {rc.get('fragmentacao_m', 0)}",
+             alinha="right")
         r += 1
 
     r += 1

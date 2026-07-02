@@ -17,8 +17,9 @@ Dois objetivos, um modulo:
    medicoes como estimativa. A previsao melhora sozinha com o uso -- o sistema
    "aprende" o ritmo da maquina onde esta rodando.
 
-Persistencia: arquivos JSON simples (sem banco). O acesso e serializado pelo
-_calc_lock do servidor, entao nao ha concorrencia real de escrita.
+Persistencia: arquivos JSON simples (sem banco). As escritas sao serializadas
+pelo _io_lock do servidor (v2.12: os calculos rodam em paralelo, mas cache e
+tempos so sao gravados pela thread do request, sob o lock).
 """
 
 import os

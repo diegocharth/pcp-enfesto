@@ -197,9 +197,13 @@ def resolver(grade, tamanhos, limites, config, callback_progresso=None, timeout_
     # Tamanho máximo do pool por n_mapas — balanceia cobertura vs tempo
     lim_combo = {1: 125, 2: 125, 3: 80, 4: 50, 5: 30, 6: 20, 7: 15}
 
-    # Limite de folhas mínimo teórico por cor (piso — baseado no grade total / max_pecas)
+    # Limite de folhas mínimo teórico por cor (piso). Usa a DEMANDA MINIMA
+    # (grade + tolerancia inferior), nao a grade cheia: um piso valido nunca
+    # pode superestimar — senao pula niveis viaveis e devolve mais enfestos
+    # que o otimo.
     folhas_min_por_cor = {
-        c: -(-sum(grade[c].get(t, 0) for t in tamanhos) // max(1, max_pecas))
+        c: -(-sum(max(0, grade[c].get(t, 0) + limites[c].get(t, (0, 0))[0])
+                  for t in tamanhos) // max(1, max_pecas))
         for c in cores
     }
     total_folhas_min = sum(folhas_min_por_cor.values())
@@ -343,15 +347,17 @@ def resolver(grade, tamanhos, limites, config, callback_progresso=None, timeout_
             if primeiro_n_com_solucao == 0:
                 primeiro_n_com_solucao = n_mapas
 
-            opcoes_no_melhor_n = [s for s in distintas if s["n_mapas"] == primeiro_n_com_solucao]
-            if melhor_dev == 0 and len(opcoes_no_melhor_n) >= num_opcoes:
-                log(f"\nOK Desvio zero com {n_mapas} mapa(s). Parando.")
-                return distintas[:num_opcoes]
-            if len(opcoes_no_melhor_n) >= num_opcoes and n_mapas >= primeiro_n_com_solucao + 1:
-                log(f"\nOK {num_opcoes} opções com {primeiro_n_com_solucao} mapa(s). Desvio={melhor_dev}pcs.")
-                return distintas[:num_opcoes]
-            if n_mapas >= primeiro_n_com_solucao + 2 and len(distintas) >= num_opcoes:
-                log(f"\nOK Explorado N={primeiro_n_com_solucao}..{n_mapas}. Desvio={melhor_dev}pcs.")
+            # Parada correta: a ordenacao primaria e' n_mapas, entao solucoes de
+            # niveis FUTUROS (n_mapas maiores) nunca deslocam as que ja temos de
+            # niveis totalmente explorados. Assim que houver num_opcoes distintas,
+            # explorar o proximo nivel inteiro nao muda o resultado -- so queima
+            # tempo (era ~140s/ref perdidos varrendo N+1 completo a toa).
+            if fully_exhausted and len(distintas) >= num_opcoes:
+                if melhor_dev == 0:
+                    log(f"\nOK Desvio zero com {primeiro_n_com_solucao} mapa(s). Parando.")
+                else:
+                    log(f"\nOK {num_opcoes} opções (melhor: {primeiro_n_com_solucao} mapa(s), "
+                        f"desvio={melhor_dev}pcs). Parando.")
                 return distintas[:num_opcoes]
 
         if not fully_exhausted:
