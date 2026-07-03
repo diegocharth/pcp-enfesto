@@ -1230,6 +1230,14 @@ def _aba_cor_alocacao(wb, cor, cor_res):
     ws.column_dimensions["F"].width = 14
     ws.column_dimensions["G"].width = 14
 
+    # Mapa indice->nominal p/ identificar cada rolo pelo tamanho (nao so "rolo N").
+    _nom_por_indice = {rl.get("rolo_indice"): rl.get("nominal_m")
+                       for rl in cor_res.get("rolos", [])}
+
+    def _rotulo_rolo(idx):
+        nm = _nom_por_indice.get(idx)
+        return f"rolo {idx} ({nm}m)" if nm is not None else f"rolo {idx}"
+
     r = 1
     _cel(ws, r, 1, f"Cor: {cor}", negrito=True, tamanho=12,
          fundo=C_AZUL_ESC, cor_txt=C_BRANCO)
@@ -1286,9 +1294,9 @@ def _aba_cor_alocacao(wb, cor, cor_res):
 
         for f in fontes:
             if f.get("tipo") == "rolo":
-                origem = f"rolo {f['rolo_indice']}"
+                origem = _rotulo_rolo(f['rolo_indice'])
             else:
-                origem = (f"ponta do rolo {f['rolo_indice']} "
+                origem = (f"ponta do {_rotulo_rolo(f['rolo_indice'])} "
                           f"(do enfesto {f['enfesto_origem']})")
             txt = f"{f['n_camadas']}x {origem}"
             if f.get("reaproveitada"):
@@ -1313,21 +1321,22 @@ def _aba_cor_alocacao(wb, cor, cor_res):
         _cel(ws, r, 1, "Sobras por rolo", negrito=True, fundo=C_AZUL_MED, cor_txt=C_BRANCO)
         ws.merge_cells(f"A{r}:G{r}")
         r += 1
-        headers = ["Rolo", "Usado (m)", "Ponta (m)", "Classe"]
+        headers = ["Rolo", "Nominal (m)", "Usado (m)", "Ponta (m)", "Classe"]
         for col, h in enumerate(headers, 1):
             _cel(ws, r, col, h, negrito=True, fundo=C_CINZA_HDR, alinha="center")
         r += 1
         for rolo in rolos:
             fundo = C_VERDE if rolo.get("ponta_classe") == "estoque" else C_CINZA_ALT
             vals = [
-                rolo["rolo_indice"],
+                f"rolo {rolo['rolo_indice']}",
+                rolo["nominal_m"],
                 rolo["usado_m"],
                 rolo["ponta_m"],
                 rolo["ponta_classe"],
             ]
             for col, v in enumerate(vals, 1):
                 _cel(ws, r, col, v, fundo=fundo,
-                     alinha="center" if col in (1, 4) else "right")
+                     alinha="center" if col in (1, 5) else "right")
             r += 1
 
 

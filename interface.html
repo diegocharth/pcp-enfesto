@@ -2261,11 +2261,11 @@ function _htmlSobrasPorRolo(cr) {
   var rolos = cr.rolos || [];
   if (!rolos.length) return '';
   var h = '<div style="margin-top:6px"><b>Sobras por rolo</b>'
-        + '<table style="font-size:12px;width:100%"><tr><th>Rolo</th><th>Usado</th>'
+        + '<table style="font-size:12px;width:100%"><tr><th>Rolo</th><th>Nominal</th><th>Usado</th>'
         + '<th>Ponta</th><th>Classe</th></tr>';
   rolos.forEach(function(s){
     var cor = s.ponta_classe === 'estoque' ? 'green' : '#b00';
-    h += '<tr><td>' + s.rolo_indice + '</td><td>' + s.usado_m + 'm</td>'
+    h += '<tr><td>rolo ' + s.rolo_indice + '</td><td>' + s.nominal_m + 'm</td><td>' + s.usado_m + 'm</td>'
        + '<td style="color:' + cor + '">' + s.ponta_m + 'm</td>'
        + '<td>' + s.ponta_classe + '</td></tr>';
   });
@@ -2315,6 +2315,9 @@ function _renderResultadoAlocacao(data) {
 
   corList.forEach(function(cor) {
     var cr = (data.por_cor||{})[cor] || {};
+    var nomPorId = {};
+    (cr.rolos||[]).forEach(function(rl){ nomPorId[rl.rolo_indice] = rl.nominal_m; });
+    function _rotRolo(idx){ var nm = nomPorId[idx]; return 'rolo ' + idx + (nm!=null ? ' (' + nm + 'm)' : ''); }
     html += '<details style="margin-bottom:6px">';
     html += '<summary style="cursor:pointer;font-weight:600;padding:5px 8px;background:var(--sf2);border-radius:var(--r)">';
     html += cor+' &mdash; '+(cr.n_sub_enfestos||0)+' sub-enfesto(s), refugo '+(cr.refugo_percentual||0)+'%';
@@ -2332,8 +2335,8 @@ function _renderResultadoAlocacao(data) {
             + e.camadas_cobertas + '/' + e.camadas_necessarias + ' camadas</div>';
       (e.fontes||[]).forEach(function(f){
         var de = f.tipo === 'ponta'
-               ? 'ponta do rolo ' + f.rolo_indice + ' (do enfesto ' + f.enfesto_origem + ')'
-               : 'rolo ' + f.rolo_indice;
+               ? 'ponta do ' + _rotRolo(f.rolo_indice) + ' (do enfesto ' + f.enfesto_origem + ')'
+               : _rotRolo(f.rolo_indice);
         html += '<div style="margin-left:12px;font-size:12px">'
               + f.n_camadas + ' camada(s) de ' + de
               + (f.reaproveitada ? ' &#8635;' : '') + '</div>';
@@ -2372,6 +2375,9 @@ function _htmlImpressaoAlocacao(d, ref) {
 
   cores.forEach(function(cor) {
     var cr = d.por_cor[cor];
+    var nomPorId = {};
+    (cr.rolos||[]).forEach(function(rl){ nomPorId[rl.rolo_indice] = rl.nominal_m; });
+    function _rotRolo(idx){ var nm = nomPorId[idx]; return 'rolo ' + idx + (nm!=null ? ' (' + nm + 'm)' : ''); }
     h += '<div class="cor"><h2>' + cor + '</h2>';
     (cr.enfestos||[]).forEach(function(e){
       var reap = (e.fontes||[]).some(function(f){return f.reaproveitada;});
@@ -2379,8 +2385,8 @@ function _htmlImpressaoAlocacao(d, ref) {
          + e.camadas_cobertas + '/' + e.camadas_necessarias + ' camadas &mdash; '
          + (e.fontes||[]).map(function(f){
              var de = f.tipo === 'ponta'
-                    ? 'ponta do rolo ' + f.rolo_indice + ' (do enfesto ' + f.enfesto_origem + ')'
-                    : 'rolo ' + f.rolo_indice;
+                    ? 'ponta do ' + _rotRolo(f.rolo_indice) + ' (do enfesto ' + f.enfesto_origem + ')'
+                    : _rotRolo(f.rolo_indice);
              return f.n_camadas + ' camada(s) de ' + de + (f.reaproveitada ? ' &#8635;' : '');
            }).join('; ');
       if (e.camadas_em_deficit > 0)
@@ -2392,10 +2398,10 @@ function _htmlImpressaoAlocacao(d, ref) {
     h += '</div>';
   });
 
-  h += '<h2>Sobras totais por rolo</h2><table><tr><th>Cor</th><th>Rolo</th><th>Ponta (m)</th><th>Classe</th></tr>';
+  h += '<h2>Sobras totais por rolo</h2><table><tr><th>Cor</th><th>Rolo</th><th>Nominal (m)</th><th>Ponta (m)</th><th>Classe</th></tr>';
   cores.forEach(function(cor) {
     (d.por_cor[cor].rolos||[]).forEach(function(s){
-      h += '<tr><td>' + cor + '</td><td>' + s.rolo_indice + '</td><td>' + s.ponta_m + '</td><td>' + s.ponta_classe + '</td></tr>';
+      h += '<tr><td>' + cor + '</td><td>rolo ' + s.rolo_indice + '</td><td>' + s.nominal_m + '</td><td>' + s.ponta_m + '</td><td>' + s.ponta_classe + '</td></tr>';
     });
   });
   h += '</table></body></html>';
