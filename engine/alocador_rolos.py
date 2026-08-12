@@ -65,6 +65,7 @@ PREMISSAS FIXAS (documentadas para quem for manter):
 
 import math
 from functools import lru_cache
+from itertools import combinations
 
 
 # ---------------------------------------------------------------------------
@@ -282,6 +283,239 @@ def _alocar_cor(demanda, comp_camada_por_id, rolos_cor, config):
     return res
 
 
+def _normalizar_rolos(lista):
+    """
+    Normaliza a lista de rolos de UMA cor para o formato interno com metadados.
+
+    Aceita dois formatos por rolo (retrocompatibilidade):
+      - numero puro (float/int/str): so o comprimento nominal (entrada manual);
+      - dict: {"comprimento_m": float, "rolo_id": str|None, "lote": str|None,
+               "largura_m": float|None, "cor_fornecedor": str|None} (import ERP).
+
+    Rolos com comprimento invalido ou <= 0 sao descartados (comportamento
+    identico ao filtro numerico anterior).
+    """
+    metas = []
+    for r in lista or []:
+        if isinstance(r, dict):
+            try:
+                comp = float(r.get("comprimento_m", 0) or 0)
+            except (TypeError, ValueError):
+                comp = 0.0
+            # not(comp > 0) tambem descarta NaN (NaN <= 0 e False, mas NaN > 0
+            # tambem) e infinito -- mesmo comportamento do filtro antigo.
+            if not (comp > 0) or math.isinf(comp):
+                continue
+            rid  = r.get("rolo_id")
+            lote = r.get("lote")
+            try:
+                larg = float(r.get("largura_m") or 0) or None
+            except (TypeError, ValueError):
+                larg = None
+            metas.append({
+                "comprimento_m" : comp,
+                "rolo_id"       : str(rid).strip() if rid not in (None, "") else None,
+                "lote"          : str(lote).strip() if lote not in (None, "", "0") else None,
+                "largura_m"     : larg,
+                "cor_fornecedor": r.get("cor_fornecedor") or None,
+            })
+        else:
+            try:
+                comp = float(r)
+            except (TypeError, ValueError):
+                comp = 0.0
+            if not (comp > 0) or math.isinf(comp):
+                continue
+            metas.append({"comprimento_m": comp, "rolo_id": None, "lote": None,
+                          "largura_m": None, "cor_fornecedor": None})
+    return metas
+
+
+def _anexar_metadados(cr, metas):
+    """
+    Anexa os metadados (rolo_id, lote, largura, cor do fornecedor) ao resultado
+    de _alocar_cor. O rolo_indice (1-based) referencia a posicao em `metas`.
+    """
+    por_indice = {i + 1: m for i, m in enumerate(metas)}
+    for r in cr.get("rolos", []):
+        m = por_indice.get(r.get("rolo_indice"))
+        if m:
+            r["rolo_id"]        = m["rolo_id"]
+            r["lote"]           = m["lote"]
+            r["largura_m"]      = m["largura_m"]
+            r["cor_fornecedor"] = m["cor_fornecedor"]
+    for e in cr.get("enfestos", []):
+        for f in e.get("fontes", []):
+            m = por_indice.get(f.get("rolo_indice"))
+            if m:
+                f["rolo_id"]   = m["rolo_id"]
+                f["lote"]      = m["lote"]
+                f["largura_m"] = m["largura_m"]
+    return cr
+
+
+def _alocar_cor_subconjunto(demanda, comp_camada_por_id, metas, indices, config):
+    """
+    Roda _alocar_cor usando apenas os rolos de `indices` (0-based, ordenados) e
+    devolve o resultado com rolo_indice remapeado para a numeracao ORIGINAL da
+    lista completa. Rolos fora do subconjunto entram como nao usados (ponta =
+    comprimento seguro inteiro), igual a um rolo que o DP nao tocou.
+    """
+    ponta_min = float(config.get("ponta_minima_util_m", 0.5))
+    sub_lens  = [metas[i]["comprimento_m"] for i in indices]
+    res = _alocar_cor(demanda, comp_camada_por_id, sub_lens, config)
+
+    mapa = {j + 1: indices[j] + 1 for j in range(len(indices))}
+    for e in res["enfestos"]:
+        for f in e["fontes"]:
+            f["rolo_indice"] = mapa[f["rolo_indice"]]
+    rolos_map = {}
+    for r in res["rolos"]:
+        r["rolo_indice"] = mapa[r["rolo_indice"]]
+        rolos_map[r["rolo_indice"]] = r
+
+    completos, ponta_extra, refugo_extra, nom_total = [], 0.0, 0.0, 0.0
+    for i, m in enumerate(metas):
+        idx = i + 1
+        nom_total += m["comprimento_m"]
+        if idx in rolos_map:
+            completos.append(rolos_map[idx])
+            continue
+        seguro = round(_comp_seguro(m["comprimento_m"], config), 6)
+        ponta  = round(seguro, 4)
+        classe = "estoque" if ponta >= ponta_min else "refugo"
+        completos.append({
+            "rolo_indice": idx, "nominal_m": round(m["comprimento_m"], 4),
+            "seguro_m": round(seguro, 4), "usado_m": 0.0,
+            "ponta_m": ponta, "ponta_classe": classe,
+        })
+        if classe == "estoque":
+            ponta_extra += ponta
+        else:
+            refugo_extra += ponta
+    res["rolos"] = completos
+
+    # Totais precisam refletir a lista completa (rolos excluidos = nao usados),
+    # em paridade com _alocar_cor sobre a lista cheia.
+    res["ponta_estoque_total_m"] = round(res["ponta_estoque_total_m"] + ponta_extra, 3)
+    res["refugo_real_m"]         = round(res["refugo_real_m"] + refugo_extra, 3)
+    res["refugo_percentual"]     = (round(100 * res["refugo_real_m"] / nom_total, 2)
+                                    if nom_total > 0 else 0.0)
+    # resumo_compra: disponibilidade deve considerar TODOS os rolos da cor
+    disp_nom = sum(m["comprimento_m"] for m in metas)
+    disp_seg = sum(_comp_seguro(m["comprimento_m"], config) for m in metas)
+    rc = res.get("resumo_compra")
+    if rc is not None:
+        necessario = rc["necessario_m"]
+        falta  = max(0.0, necessario - disp_seg)
+        compra = res["tecido_a_comprar_m"]
+        rc["disponivel_nominal_m"] = round(disp_nom, 3)
+        rc["disponivel_seguro_m"]  = round(disp_seg, 3)
+        rc["falta_liquida_m"]      = round(falta, 3)
+        rc["fragmentacao_m"]       = round(max(0.0, compra - falta), 3)
+    return res
+
+
+def _uso_por_rolo(cr):
+    """Indices (1-based) dos rolos efetivamente usados no resultado de uma cor."""
+    usados = set()
+    for e in cr.get("enfestos", []):
+        for f in e.get("fontes", []):
+            usados.add(f["rolo_indice"])
+    return usados
+
+
+def _rank_candidato_lote(cr, metas):
+    """
+    Chave de ordenacao entre candidatos VIAVEIS (sem deficit) do modo lote:
+      1. menos larguras distintas entre rolos usados (juntar largura);
+      2. menor refugo real dos rolos usados;
+      3. menor soma de pontas dos rolos usados (menos sobras de pontas);
+      4. menos fontes (menos fragmentacao operacional).
+    """
+    usados = _uso_por_rolo(cr)
+    largs  = set()
+    refugo = ponta = 0.0
+    for r in cr.get("rolos", []):
+        if r["rolo_indice"] not in usados:
+            continue
+        m = metas[r["rolo_indice"] - 1]
+        if m["largura_m"]:
+            largs.add(round(m["largura_m"], 2))
+        if r["ponta_classe"] == "refugo":
+            refugo += r["ponta_m"]
+        else:
+            ponta += r["ponta_m"]
+    n_fontes = sum(len(e.get("fontes", [])) for e in cr.get("enfestos", []))
+    return (len(largs), round(refugo, 3), round(ponta, 3), n_fontes)
+
+
+_MAX_COMBOS_LOTE = 400   # teto de subconjuntos avaliados por nivel k
+
+
+def _alocar_cor_com_lotes(demanda, comp_camada_por_id, metas, config):
+    """
+    Modo "Considerar Lote": tenta atender a cor com o MENOR numero possivel de
+    lotes distintos (1 lote se possivel; senao 2; e assim por diante).
+
+    Estrategia: enumera combinacoes de lotes por tamanho crescente k e fica com
+    o primeiro nivel k que tiver candidato viavel (sem deficit), desempatando
+    por _rank_candidato_lote. Se a combinatoria estourar o teto, cai num greedy
+    (lotes maiores primeiro). Se nem todos os rolos juntos atendem (deficit
+    inevitavel), devolve None e o chamador usa todos os rolos.
+
+    Returns:
+        (resultado, lotes_usados) | (None, None)
+    """
+    lotes = {}
+    for i, m in enumerate(metas):
+        lotes.setdefault(m["lote"] or "S/LOTE", []).append(i)
+    chaves = sorted(lotes.keys())
+    n = len(chaves)
+    if n <= 1:
+        return None, None   # 0/1 lote: nada a otimizar
+
+    necessario = sum(int(demanda[mid]) * float(comp_camada_por_id.get(mid, 0.0))
+                     for mid in demanda)
+    seguro_por_lote = {ch: sum(_comp_seguro(metas[i]["comprimento_m"], config)
+                               for i in lotes[ch]) for ch in chaves}
+
+    def avaliar(combo):
+        idxs = sorted(i for ch in combo for i in lotes[ch])
+        # Poda: capacidade segura do subconjunto nunca cobre o necessario
+        if sum(seguro_por_lote[ch] for ch in combo) < necessario - 1e-9:
+            return None
+        res = _alocar_cor_subconjunto(demanda, comp_camada_por_id, metas, idxs, config)
+        if res["camadas_em_deficit"]:
+            return None
+        return res
+
+    for k in range(1, n + 1):
+        if math.comb(n, k) > _MAX_COMBOS_LOTE:
+            # Combinatoria alta: greedy — acumula lotes do maior para o menor.
+            ordem = sorted(chaves, key=lambda ch: -seguro_por_lote[ch])
+            acumulado = []
+            for ch in ordem:
+                acumulado.append(ch)
+                if len(acumulado) < k:
+                    continue
+                res = avaliar(tuple(acumulado))
+                if res is not None:
+                    return res, sorted(acumulado)
+            return None, None
+        melhores = []
+        for combo in combinations(chaves, k):
+            res = avaliar(combo)
+            if res is not None:
+                melhores.append((_rank_candidato_lote(res, metas), combo, res))
+        if melhores:
+            melhores.sort(key=lambda x: (x[0], x[1]))
+            _, combo, res = melhores[0]
+            return res, sorted(combo)
+
+    return None, None
+
+
 def _validar_entradas(plano, config):
     """Valida parametros obrigatorios. Lanca ValueError com mensagem clara."""
     consumo = float(plano.get("consumo_peca", 0))
@@ -319,8 +553,15 @@ def alocar_rolos(plano, rolos, config):
             "camadas": {"COR": {mapa_id: n_camadas}, ...},
             "consumo_peca": float   # metros por peca
         }
-        rolos:  {"COR": [comprimento_nominal_m, ...]}   # um valor por rolo
-        config: dict (lido de config.json; ver parametros novos no final)
+        rolos:  {"COR": [rolo, ...]} onde cada rolo pode ser:
+                  - float: comprimento nominal em metros (entrada manual); ou
+                  - dict:  {"comprimento_m": float, "rolo_id": str|None,
+                            "lote": str|None, "largura_m": float|None,
+                            "cor_fornecedor": str|None} (import do ERP).
+        config: dict (lido de config.json). Chave nova: "considerar_lote"
+                (bool) -- quando True, tenta atender cada cor com o MENOR
+                numero de lotes distintos (1 se possivel); se houver deficit
+                mesmo com todos os rolos, a restricao e ignorada para a cor.
 
     Returns:
         {
@@ -391,10 +632,12 @@ def alocar_rolos(plano, rolos, config):
     }
 
     todas_cores = sorted(set(list(camadas_plano.keys()) + list(rolos.keys())))
+    considerar_lote = bool(config.get("considerar_lote", False))
 
     for cor in todas_cores:
         demanda   = {int(k): int(v) for k, v in camadas_plano.get(cor, {}).items() if int(v) > 0}
-        rolos_cor = [float(r) for r in rolos.get(cor, []) if float(r) > 0]
+        metas     = _normalizar_rolos(rolos.get(cor))
+        rolos_cor = [m["comprimento_m"] for m in metas]
 
         # Cor sem demanda real -> ignora
         if not demanda:
@@ -414,6 +657,57 @@ def alocar_rolos(plano, rolos, config):
                         f"em nenhum rolo (maior seguro {maior_seguro:.2f}m)."
                     )
             cr = _alocar_cor(demanda, comp_camada_por_id, rolos_cor, config)
+
+            # Modo "Considerar Lote": tenta atender com o menor numero de lotes.
+            if considerar_lote:
+                if cr["camadas_em_deficit"]:
+                    alertas.append(
+                        f"{cor}: ha deficit mesmo usando todos os rolos; "
+                        f"a restricao de lote foi ignorada para esta cor."
+                    )
+                else:
+                    res_lote, _combo = _alocar_cor_com_lotes(
+                        demanda, comp_camada_por_id, metas, config)
+                    if res_lote is not None:
+                        cr = res_lote
+
+        # Metadados (nº do rolo, lote, largura, cor do fornecedor) no resultado.
+        _anexar_metadados(cr, metas)
+
+        # Info de lotes e larguras efetivamente usados (honesta: le do resultado).
+        usados_idx = _uso_por_rolo(cr)
+        lotes_usados = sorted({(metas[i - 1]["lote"] or "S/LOTE") for i in usados_idx}) \
+                       if metas else []
+        lotes_disp   = sorted({(m["lote"] or "S/LOTE") for m in metas}) if metas else []
+        cr["lotes"] = {
+            "considerado": considerar_lote,
+            "disponiveis": len(lotes_disp),
+            "utilizados" : lotes_usados,
+        }
+        if considerar_lote and len(lotes_usados) > 1:
+            alertas.append(
+                f"{cor}: nao foi possivel atender com um unico lote; "
+                f"usados {len(lotes_usados)} lotes ({', '.join(lotes_usados)})."
+            )
+
+        largs_usadas = sorted({round(metas[i - 1]["largura_m"], 2)
+                               for i in usados_idx if metas[i - 1]["largura_m"]})
+        cr["larguras_utilizadas"] = largs_usadas
+        if len(largs_usadas) > 1:
+            alertas.append(
+                f"{cor}: rolos usados tem larguras diferentes "
+                f"({', '.join(str(x) for x in largs_usadas)}m). "
+                f"Confira se o encaixe cabe na menor largura."
+            )
+        for e in cr["enfestos"]:
+            ls = sorted({round(metas[f["rolo_indice"] - 1]["largura_m"], 2)
+                         for f in e["fontes"]
+                         if metas[f["rolo_indice"] - 1]["largura_m"]})
+            if len(ls) > 1:
+                alertas.append(
+                    f"{cor}: mapa {e['mapa_id']} mistura larguras "
+                    f"{', '.join(str(x) for x in ls)}m no mesmo encaixe."
+                )
 
         # Alerta de compra por cor (antes dos alertas por mapa).
         if cr["camadas_em_deficit"]:
@@ -478,5 +772,6 @@ def alocar_rolos(plano, rolos, config):
         "folga_incerteza_pct": float(config.get("folga_incerteza_pct", 0.03)),
         "folga_incerteza_m": float(config.get("folga_incerteza_m", 0.0)),
         "ponta_minima_util_m": float(ponta_min),
+        "considerar_lote": considerar_lote,
     }
     return {"por_cor": resultado_por_cor, "resumo_geral": resumo_geral, "params": params}

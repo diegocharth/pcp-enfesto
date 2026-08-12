@@ -26,6 +26,7 @@ class FonteRolos:
                 - comprimento_m (float): Comprimento do rolo em metros.
                 - rolo_id (str | None): Numero/ID do rolo, se disponivel.
                 - lote (str | None): Numero do lote, se disponivel.
+                - largura_m (float | None): Largura do rolo em metros, se disponivel.
                 - artigo (str | None): Codigo/nome do artigo, se disponivel.
                 - reservado (bool): True se rolo esta reservado (secao "Reservados").
                 - linha_original (str): Linha de texto original para rastreabilidade.

@@ -11,7 +11,7 @@ Roda como servidor Python local na porta 5050. Interface HTML no navegador. Sem 
 
 **Stack:** Python 3.10+ · HTML/CSS/JS vanilla · openpyxl · pdfplumber · Windows 10/11
 
-**Versão atual:** 2.11.0
+**Versão atual:** 2.13.0
 
 ---
 
@@ -41,10 +41,11 @@ pcp_enfestos/
 ├── INSTALAR.bat               ← instala Python + bibliotecas + cria atalho
 ├── PCP_Enfestos.vbs           ← INICIALIZADOR — duplo clique do usuário
 ├── iniciar_visivel.bat        ← debug: abre CMD visível para ver erros
-├── main.py                    ← servidor HTTP porta 5050 (v2.8.0)
-├── launcher.py                ← aplica auto-update pendente, depois inicia main.py
+├── main.py                    ← servidor HTTP porta 5050
+├── launcher.py                ← aplica restauracao/update pendente, inicia main.py
 ├── updater.py                 ← motor de auto-update via GitHub Releases
-├── VERSION                    ← "2.8.0"
+├── versoes.py                 ← snapshots permanentes de versao + restauracao (v2.13)
+├── VERSION                    ← versao atual (ex: "2.13.0")
 ├── interface.html             ← UI completa no navegador (~1800 linhas)
 ├── config.json                ← parâmetros padrão persistentes
 ├── engine/
@@ -53,13 +54,15 @@ pcp_enfestos/
 │   ├── tolerancia.py          ← regras de desvio permitido por tamanho
 │   ├── mapas.py               ← gerador de composições de encaixe
 │   ├── cache_planos.py        ← cache persistente de resultados + tempos aprendidos (ETA)
-│   ├── alocador_rolos.py      ← motor FFD de alocação de rolos
+│   ├── alocador_rolos.py      ← alocacao por mochila/rolo; v2.13: metadados + Considerar Lote
+│   ├── planos.py              ← plano de corte portatil .plano.json (v2.13)
 │   └── import_rolos/
-│       ├── base.py            ← classe abstrata FonteRolos
-│       ├── fonte_vexta_pdf.py ← parser PDF do ERP Vexta
+│       ├── base.py            ← classe abstrata FonteRolos (contrato inclui largura_m)
+│       ├── fonte_vexta_pdf.py ← parser PDF "Reserva de Tecidos" (artigo/cor por POSICAO)
+│       ├── fonte_vexta_estoque_pdf.py ← parser PDF "Estoque Total/ROLOS" com LARGURA (v2.13)
 │       ├── fonte_sisplan.py   ← stub para ERP Sisplan (não implementado)
 │       ├── mapa_cores.py      ← mapeamento cor-fornecedor → cor-comercial
-│       └── registry.py        ← obtém fonte correta por tipo/extensão
+│       └── registry.py        ← detecta o formato do PDF pelo CONTEUDO (v2.13)
 ├── exportar/
 │   ├── export_xlsx.py         ← gera planilha Excel (resultado solver + alocação)
 │   ├── upload_parser.py       ← lê .xlsx/.csv de ordens de produção
@@ -166,11 +169,19 @@ O `interface.html` já foi corrompido antes por `Set-Content -Encoding utf8` do 
 | POST | `/salvar_params` | Persiste parâmetros da UI |
 | POST | `/upload` | Parse de .xlsx/.csv de ordem de produção |
 | POST | `/upload_imagem` | OCR via Claude API |
-| POST | `/alocar_rolos` | Motor FFD de alocação de rolos |
+| POST | `/alocar_rolos` | Alocação de rolos (aceita números OU objetos c/ metadados; `considerar_lote`) |
 | POST | `/exportar_alocacao` | Gera .xlsx da alocação de rolos |
-| POST | `/importar_rolos` | Importa rolos de PDF do ERP (Vexta) |
+| POST | `/importar_rolos` | Importa rolos de PDF do ERP (2 formatos Vexta, detecção automática) |
 | POST | `/salvar_mapa_cor` | Salva mapeamento cor-fornecedor → cor-comercial |
 | POST | `/sinalizar_update` | Agenda update para próxima abertura |
+| GET | `/versoes` | Snapshots locais + estado do auto-update (v2.13) |
+| POST | `/restaurar_versao` | Agenda restauração de versão p/ próxima abertura (v2.13) |
+| POST | `/cancelar_restauracao` | Cancela restauração agendada (v2.13) |
+| POST | `/reativar_update` | Religa auto-update após restauração (v2.13) |
+| POST | `/salvar_plano` | Salva plano de corte portátil .plano.json (v2.13) |
+| GET | `/planos_salvos` | Lista planos portáteis salvos (v2.13) |
+| POST | `/carregar_plano` | Carrega plano portátil salvo (v2.13) |
+| POST | `/importar_plano` | Importa arquivo .plano.json enviado pela UI (v2.13) |
 
 ---
 

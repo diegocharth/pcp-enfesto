@@ -202,6 +202,17 @@ def baixar_e_aplicar(asset_url, versao_nova, callback=None):
 
     log("Download OK. Preparando backup...")
 
+    # 2b. Snapshot PERMANENTE da versao atual (dados/_versoes/vX.Y.Z.zip):
+    # diferente do backup unico abaixo, este fica guardado para sempre e
+    # permite restaurar qualquer versao antiga pela secao Versoes da UI.
+    # base_dir=BASE_DIR: respeita o BASE_DIR deste modulo (testes o mockam).
+    try:
+        import versoes
+        versoes.criar_snapshot(motivo=f"antes do update para {versao_nova}",
+                               base_dir=BASE_DIR)
+    except Exception:
+        pass  # snapshot e melhoria, nunca bloqueia o update
+
     # 3. Backup da versao atual
     versao_atual = _ler_versao_local()
     try:
@@ -269,6 +280,16 @@ def baixar_e_aplicar(asset_url, versao_nova, callback=None):
         if os.path.exists(PENDENTE_DIR):
             shutil.rmtree(PENDENTE_DIR)
     except OSError:
+        pass
+
+    # 7. Se o auto-update estava pausado por uma restauracao manual, um update
+    # aplicado agora foi decisao explicita do usuario -> religa o auto-update.
+    try:
+        import versoes
+        if versoes.update_pausado(base_dir=BASE_DIR):
+            versoes.reativar_auto_update(base_dir=BASE_DIR)
+            log("Auto-update reativado (update manual aplicado).")
+    except Exception:
         pass
 
     log(f"Update para {versao_nova} aplicado com sucesso.")

@@ -302,7 +302,22 @@ input:focus,select:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 2p
 <div class="card" id="card-alocacao">
   <div class="ct">
     <span>&#128230; Alocacao de Rolos</span>
-    
+
+  </div>
+
+  <!-- v2.13: plano de corte usado na alocacao (atual ou importado) -->
+  <div id="aloc-plano-box" style="margin-bottom:10px;padding:8px 10px;background:var(--sf2);border-radius:var(--r);font-size:12px">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span style="font-weight:600;color:var(--tx2)">Plano de corte:</span>
+      <span id="aloc-plano-info">nenhum (calcule acima ou importe um plano salvo)</span>
+      <button class="btn btn-s btn-sm" type="button" onclick="salvarPlanoAtual()" title="Salva o plano atual em um arquivo .plano.json para reabrir depois">&#128190; Salvar plano</button>
+      <button class="btn btn-s btn-sm" type="button" onclick="abrirPlanosSalvos()" title="Reabre um plano de corte salvo anteriormente">&#128194; Carregar plano salvo</button>
+      <button class="btn btn-s btn-sm" type="button" onclick="document.getElementById('aloc-plano-arquivo').click()" title="Importa um arquivo .plano.json">&#8686; Importar arquivo</button>
+      <button class="btn btn-s btn-sm" type="button" id="aloc-plano-descartar" style="display:none" onclick="descartarPlanoImportado()">x Descartar plano importado</button>
+      <span class="sm" id="aloc-plano-st"></span>
+    </div>
+    <div id="aloc-planos-lista" style="display:none;margin-top:8px"></div>
+    <input type="file" id="aloc-plano-arquivo" accept=".json,.plano.json" style="display:none" onchange="importarArquivoPlano(this)">
   </div>
 
   <!-- Parametros de alocacao -->
@@ -323,7 +338,26 @@ input:focus,select:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 2p
       <div class="hint">Pontas maiores que este valor vao para estoque; menores sao refugo.</div>
     </div>
   </div>
-    
+
+  <!-- v2.13: considerar lote na alocacao -->
+  <div style="margin-bottom:10px">
+    <label id="aloc-lote-label" style="display:inline-flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid var(--bd2);border-radius:var(--r);cursor:pointer;font-size:13px;font-weight:600;user-select:none">
+      <input type="checkbox" id="aloc-considerar-lote" style="width:16px;height:16px;cursor:pointer">
+      Considerar Lote
+    </label>
+    <div class="hint" style="margin-top:4px">Marcado: tenta atender cada cor com UM unico lote (variacao de tonalidade); se nao der, usa o menor numero possivel de lotes. Desmarcado: ignora o lote.</div>
+  </div>
+
+  <!-- v2.13: importacao de rolos do ERP (PDF) -->
+  <div id="aloc-import-box" style="margin-bottom:10px;padding:8px 10px;border:1px dashed var(--bd2);border-radius:var(--r)">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-s" type="button" onclick="document.getElementById('aloc-rolos-arquivo').click()">&#128196; Importar rolos do ERP (PDF)</button>
+      <span style="font-size:11px;color:var(--tx2)">Aceita os dois modelos: Reserva de Tecidos (pre-alocados) e Estoque Total (ROLOS). Pode importar varios arquivos: os rolos se acumulam.</span>
+      <input type="file" id="aloc-rolos-arquivo" accept=".pdf" multiple style="display:none" onchange="importarRolosPdf(this)">
+    </div>
+    <div class="sm" id="aloc-import-st" style="margin-top:4px"></div>
+    <div id="aloc-equivalencias" style="display:none;margin-top:8px"></div>
+  </div>
 
   <!-- Input manual de rolos por cor -->
   <div id="aloc-rolos-por-cor">
@@ -349,6 +383,20 @@ input:focus,select:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 2p
     &#9888; Um parametro mudou. Refaca a alocacao para atualizar.
   </div>
   <div id="aloc-resultado" style="display:none;margin-top:12px"></div>
+</div>
+
+<!-- VERSOES E RESTAURACAO v2.13 -->
+<div class="card" id="card-versoes">
+  <details>
+    <summary style="cursor:pointer;font-weight:700;font-size:14px" onclick="carregarVersoes()">&#128190; Versoes e restauracao</summary>
+    <div style="font-size:12px;color:var(--tx2);margin:8px 0">
+      Toda versao que roda nesta maquina fica guardada para sempre em <b>dados/_versoes/</b>.
+      Se uma atualizacao nao agradar, restaure qualquer versao anterior aqui.
+      Ao restaurar, a atualizacao automatica fica pausada ate voce reativar.
+    </div>
+    <div id="versoes-status" style="font-size:12px;margin-bottom:8px"></div>
+    <div id="versoes-lista" style="font-size:12px">Carregando...</div>
+  </details>
 </div>
 
 <!-- UPDATE BANNER -->
@@ -941,6 +989,8 @@ async function calcular(){
   // e clicavel durante os minutos que o solver leva pra rodar).
   resultado=null; window._resultadoMulti=null;
   _esconderResultadoAlocacao();
+  // O plano importado so e descartado quando um resultado NOVO aterrissa
+  // (se o calculo falhar ou for cancelado, o plano importado continua valendo).
   document.getElementById('btn-calc').disabled=true;
   document.getElementById('btn-continuar').style.display='none';
   document.getElementById('btn-copiar-log').style.display='none';
@@ -1175,6 +1225,7 @@ async function calcular(){
       ).join(' + ');
       L(`\nMELHOR${foiCancelado?' (parcial)':''}: ${descBest} = ${best.total} enfestos`);
       _setEtapa('fim',best.total+' enf.'+(foiCancelado?' (parcial)':''),foiCancelado?'erro':'ok');
+      _planoImportado=null;   // resultado novo assume o lugar do plano importado
       window._resultadoMulti={grupos:best.grupos};   // habilita a Alocacao de Rolos
       renderResultadoGrupos(validos);
       try { atualizarCoresAlocacao(); } catch(e) {}
@@ -1298,6 +1349,7 @@ async function calcular(){
     document.getElementById('pbb').style.width='100%';
     L('✅ Concluído!');
     _setEtapa('fim','✅ Concluído','ok');
+    _planoImportado=null;   // resultado novo assume o lugar do plano importado
     resultado=data; renderResultado(data);
     document.getElementById('btn-copiar-log').style.display='inline-flex';
     try { atualizarCoresAlocacao(); } catch(e) {}
@@ -1408,6 +1460,7 @@ function _renderRefCard(r, ri, labelExtra){
 }
 
 function renderResultadoComComparacao(dadoCombinado, dadosSep, totalSep){
+  _planoImportado=null;   // resultado novo assume o lugar do plano importado
   window._resultadoMulti = dadosSep;
   window._dadoCombinado  = dadoCombinado;
   document.getElementById('rb').style.display='block';
@@ -1601,6 +1654,9 @@ async function exportarTodos(){
         const nome=res.nome||res.caminho;
         const a=document.createElement('a');a.href='/baixar?arquivo='+encodeURIComponent(nome);a.download=nome;a.click();
         document.getElementById('es').textContent='Baixando: '+nome+' ('+best.grupos.length+' parte(s))';
+        // v2.13: no SUCESSO do export, salva tambem o plano portatil
+        // (.plano.json) que permite reimportar depois so para alocar rolos.
+        await _autoSalvarPlano();
       }else{document.getElementById('es').textContent='Erro: '+(res.erro||'?');}
     }catch(e){document.getElementById('es').textContent='Erro: '+e.message;}
   }else{
@@ -1812,6 +1868,8 @@ async function exportar(data){
       const nome=res.nome||res.caminho;
       const a=document.createElement('a');a.href='/baixar?arquivo='+encodeURIComponent(nome);a.download=nome;a.click();
       document.getElementById('es').textContent='Baixando: '+nome;
+      // v2.13: no SUCESSO do export, salva tambem o plano portatil.
+      await _autoSalvarPlano();
     }else{document.getElementById('es').textContent='Erro: '+(res.erro||'?');}
   }catch(e){document.getElementById('es').textContent='Erro: '+e.message;}
 }
@@ -1832,7 +1890,7 @@ function _esconderResultadoAlocacao(){
 }
 
 var _CALC_PARAM_IDS = ['mesa','max_folhas','num_opcoes','tol_abs','tol_pct','criterio','timeout'];
-var _ALOC_PARAM_IDS = ['aloc-margem','aloc-folga','aloc-ponta-min'];
+var _ALOC_PARAM_IDS = ['aloc-margem','aloc-folga','aloc-ponta-min','aloc-considerar-lote'];
 
 function _onParamChange(e){
   var t=e.target; if(!t) return;
@@ -1868,6 +1926,16 @@ function limpar(){
   window._resultadoMulti=null;
   // Limpar seção de rolos
   _rolosPorCor={};
+  _rolosImportados={};
+  _planoImportado=null;
+  _equivPendentes=null;
+  try { _renderEquivalencias(); _renderPlanoAlocacaoInfo(); } catch(e) {}
+  var impSt=document.getElementById('aloc-import-st');
+  if(impSt) impSt.textContent='';
+  var plSt=document.getElementById('aloc-plano-st');
+  if(plSt) plSt.textContent='';
+  var plLista=document.getElementById('aloc-planos-lista');
+  if(plLista){ plLista.style.display='none'; plLista.innerHTML=''; }
   var lista=document.getElementById('aloc-cores-lista');
   if(lista) lista.innerHTML='';
   var semCores=document.getElementById('aloc-sem-cores');
@@ -1896,6 +1964,10 @@ async function encerrarSistema() {
 var _rolosPorCor = {};
 var _mapeamentosPendentes = {};
 var _updateDisponivel = null;
+// v2.13: plano importado (.plano.json) e rolos importados do ERP (com metadados)
+var _planoImportado = null;      // {referencia, criado_em, plano:{mapas,camadas,consumo_peca}}
+var _rolosImportados = {};       // {COR: [{comprimento_m, rolo_id, lote, largura_m, cor_fornecedor}]}
+var _equivPendentes = null;      // {cor_fornecedor: [rolos...]} aguardando vinculo de cor
 
 // Parse unico de comprimentos de rolo.
 // Regra (padrao BR de fabrica): separador entre rolos = ';' (tolera quebras de linha);
@@ -1976,23 +2048,30 @@ function atualizarCoresAlocacao() {
     if (!seen.has(c)) { seen.add(c); coresDisponiveis.push(c); }
   }
 
-  if (typeof resultado !== 'undefined' && resultado && resultado.grade) {
-    Object.keys(resultado.grade).forEach(addCor);
-  }
-  if (window._resultadoMulti) {
-    (window._resultadoMulti.grupos || []).forEach(function(g) {
-      var d = g.data;
-      if (d && d.grade) Object.keys(d.grade).forEach(addCor);
-      if (d && d.solucoes) {
-        d.solucoes.forEach(function(s) {
-          (s.refs_sol || []).forEach(function(r) {
-            Object.keys(r.grade || {}).forEach(addCor);
+  if (_planoImportado && _planoImportado.plano) {
+    Object.keys(_planoImportado.plano.camadas || {}).forEach(addCor);
+  } else {
+    if (typeof resultado !== 'undefined' && resultado && resultado.grade) {
+      Object.keys(resultado.grade).forEach(addCor);
+    }
+    if (window._resultadoMulti) {
+      (window._resultadoMulti.grupos || []).forEach(function(g) {
+        var d = g.data;
+        if (d && d.grade) Object.keys(d.grade).forEach(addCor);
+        if (d && d.solucoes) {
+          d.solucoes.forEach(function(s) {
+            (s.refs_sol || []).forEach(function(r) {
+              Object.keys(r.grade || {}).forEach(addCor);
+            });
           });
-        });
-      }
-    });
+        }
+      });
+    }
   }
+  Object.keys(_rolosImportados).forEach(addCor);
   Object.keys(_rolosPorCor).forEach(addCor);
+
+  try { _renderPlanoAlocacaoInfo(); } catch(e) {}
 
   if (coresDisponiveis.length === 0) {
     lista.innerHTML = '';
@@ -2019,6 +2098,32 @@ function atualizarCoresAlocacao() {
     cells.className = 'aloc-cels';
     cells.dataset.cor = cor;
     cells.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px';
+
+    // v2.13: rolos importados do ERP viram "chips" com metadados (num. do
+    // rolo, lote, largura). Sao somados as celulas manuais na hora de alocar.
+    (_rolosImportados[cor] || []).forEach(function(rl, ri) {
+      var chip = document.createElement('span');
+      chip.style.cssText = 'display:inline-flex;align-items:center;gap:4px;padding:3px 7px;'
+        + 'background:var(--sf2);border:1px solid var(--bd2);border-radius:12px;font-size:11px';
+      var txt = (rl.rolo_id ? 'R' + rl.rolo_id : 'rolo') + ' ' + String(rl.comprimento_m).replace('.', ',') + 'm';
+      if (rl.lote) txt += ' lt ' + rl.lote;
+      if (rl.largura_m) txt += ' ' + String(rl.largura_m).replace('.', ',') + 'm larg';
+      chip.title = (rl.cor_fornecedor ? 'Cor fornecedor: ' + rl.cor_fornecedor : 'Rolo importado do ERP');
+      chip.appendChild(document.createTextNode(txt));
+      var rm = document.createElement('span');
+      rm.textContent = 'x';
+      rm.style.cssText = 'cursor:pointer;font-weight:700;color:var(--tx2)';
+      rm.title = 'Remover este rolo';
+      rm.addEventListener('click', function() {
+        _rolosImportados[cor].splice(ri, 1);
+        if (!_rolosImportados[cor].length) delete _rolosImportados[cor];
+        _esconderResultadoAlocacao();
+        atualizarCoresAlocacao();
+      });
+      chip.appendChild(rm);
+      cells.appendChild(chip);
+    });
+
     var n = Math.max(8, arr.length + 1);
     for (var i = 0; i < n; i++) cells.appendChild(_novaCelulaRolo(cor, arr[i]));
 
@@ -2074,16 +2179,21 @@ async function iniciarAlocacao() {
   st.textContent = 'Alocando...';
   resDiv.style.display = 'none';
 
+  // v2.13: rolos = importados do ERP (objetos com metadados) + digitados (numeros)
   var rolos = {};
+  Object.keys(_rolosImportados).forEach(function(cor) {
+    var objs = (_rolosImportados[cor] || []).filter(function(r) { return r && r.comprimento_m > 0; });
+    if (objs.length) rolos[cor] = objs.slice();
+  });
   Object.keys(_rolosPorCor).forEach(function(cor) {
     var vals = (_rolosPorCor[cor] || []).filter(function(n) { return n > 0; });
-    if (vals.length) rolos[cor] = vals;
+    if (vals.length) rolos[cor] = (rolos[cor] || []).concat(vals);
   });
 
   if (!Object.keys(rolos).length) { st.textContent = 'Informe os rolos por cor antes de alocar.'; return; }
 
   var plano = _montarPlanoParaAlocacao();
-  if (!plano) { st.textContent = 'Calcule um plano de corte primeiro.'; return; }
+  if (!plano) { st.textContent = 'Calcule um plano de corte primeiro (ou importe um plano salvo).'; return; }
 
   var body = {
     plano: plano,
@@ -2091,6 +2201,7 @@ async function iniciarAlocacao() {
     margem:    parseFloat(document.getElementById('aloc-margem').value) || 0.10,
     folga_pct: (parseFloat(document.getElementById('aloc-folga').value) || 3) / 100,
     ponta_min: parseFloat(document.getElementById('aloc-ponta-min').value) || 0.5,
+    considerar_lote: !!(document.getElementById('aloc-considerar-lote') || {}).checked,
   };
 
   try {
@@ -2141,6 +2252,20 @@ function _renderMapasAudaces() {
 }
 
 function _montarPlanoParaAlocacao() {
+  // v2.13: plano importado (.plano.json) tem prioridade -- permite alocar rolos
+  // num plano calculado em outro dia sem recalcular nada. Calcular um plano
+  // novo descarta o importado (ver calcular()).
+  if (_planoImportado && _planoImportado.plano) {
+    var pl = _planoImportado.plano;
+    var mapas2 = (pl.mapas || []).map(function(m) {
+      var real = (window._compRealAudaces || {})[m.id];
+      var base = (m.comp_camada_m > 0 ? m.comp_camada_m : (m.n_pecas * (pl.consumo_peca || 1.0645)));
+      return {id: m.id, composicao: m.composicao, n_pecas: m.n_pecas,
+              comp_camada_m: (real > 0 ? +(+real).toFixed(4) : +(+base).toFixed(4)),
+              comp_calc_m: (m.comp_calc_m !== undefined ? m.comp_calc_m : +(+base).toFixed(4))};
+    });
+    return {mapas: mapas2, camadas: pl.camadas, consumo_peca: pl.consumo_peca || 1.0645};
+  }
   // Constroi UM plano unico para a alocacao, agregando TODOS os grupos da
   // particao (single-ref e combinados). Cada mapa recebe comp_camada_m explicito:
   // - single-ref: n_pecas x consumo da referencia;
@@ -2202,6 +2327,7 @@ function _montarPlanoParaAlocacao() {
 }
 
 function _getReferencia() {
+  if (_planoImportado && _planoImportado.referencia) return _planoImportado.referencia;
   if (typeof resultado !== 'undefined' && resultado && resultado.referencia) return resultado.referencia;
   if (window._resultadoMulti) return 'Multi-ref';
   return 'REF';
@@ -2257,19 +2383,60 @@ function _sugestoesAlocacao(data) {
   return html;
 }
 
+// v2.13: rotulo unico de rolo com metadados (numero real, lote, largura) quando existem.
+function _rotuloRoloMeta(rl, idx) {
+  if (!rl) return 'rolo ' + idx;
+  var base = rl.rolo_id ? 'rolo ' + rl.rolo_id : 'rolo ' + (rl.rolo_indice || idx);
+  var det = [];
+  if (rl.nominal_m != null) det.push(rl.nominal_m + 'm');
+  if (rl.lote) det.push('lote ' + rl.lote);
+  if (rl.largura_m) det.push('larg ' + rl.largura_m + 'm');
+  return base + (det.length ? ' (' + det.join(', ') + ')' : '');
+}
+
 function _htmlSobrasPorRolo(cr) {
   var rolos = cr.rolos || [];
   if (!rolos.length) return '';
-  var h = '<div style="margin-top:6px"><b>Sobras por rolo</b>'
-        + '<table style="font-size:12px;width:100%"><tr><th>Rolo</th><th>Nominal</th><th>Usado</th>'
-        + '<th>Ponta</th><th>Classe</th></tr>';
+  var temMeta = rolos.some(function(s){ return s.rolo_id || s.lote || s.largura_m || s.cor_fornecedor; });
+  var h = '<div style="margin-top:6px;overflow-x:auto"><b>Sobras por rolo</b>'
+        + '<table style="font-size:12px;width:100%"><tr><th>Rolo</th>'
+        + (temMeta ? '<th>N. Rolo</th><th>Lote</th><th>Larg</th><th>Cor fornecedor</th>' : '')
+        + '<th>Nominal</th><th>Usado</th><th>Ponta</th><th>Classe</th></tr>';
   rolos.forEach(function(s){
     var cor = s.ponta_classe === 'estoque' ? 'green' : '#b00';
-    h += '<tr><td>rolo ' + s.rolo_indice + '</td><td>' + s.nominal_m + 'm</td><td>' + s.usado_m + 'm</td>'
+    h += '<tr><td>rolo ' + s.rolo_indice + '</td>'
+       + (temMeta ? '<td>' + (s.rolo_id || '-') + '</td><td>' + (s.lote || '-') + '</td>'
+                  + '<td>' + (s.largura_m ? s.largura_m + 'm' : '-') + '</td>'
+                  + '<td>' + (s.cor_fornecedor || '-') + '</td>' : '')
+       + '<td>' + s.nominal_m + 'm</td><td>' + s.usado_m + 'm</td>'
        + '<td style="color:' + cor + '">' + s.ponta_m + 'm</td>'
        + '<td>' + s.ponta_classe + '</td></tr>';
   });
   return h + '</table></div>';
+}
+
+// v2.13: linha-resumo de lotes e larguras usados por cor.
+function _htmlLotesLarguras(cr) {
+  var h = '';
+  var lt = cr.lotes || {};
+  if ((lt.utilizados || []).length) {
+    var multi = lt.utilizados.length > 1;
+    h += '<div style="margin:4px 0;font-size:12px">'
+       + (lt.considerado ? '<b>Lote considerado:</b> ' : '<b>Lotes:</b> ')
+       + '<span style="color:' + (lt.considerado && multi ? 'var(--er)' : 'var(--tx)') + '">'
+       + lt.utilizados.join(', ') + '</span>'
+       + (lt.considerado && !multi ? ' <span style="color:var(--ok)">&#10003; lote unico</span>' : '')
+       + (lt.considerado && multi ? ' (nao foi possivel um lote unico)' : '')
+       + ' <span style="color:var(--tx2)">&mdash; ' + (lt.disponiveis || 0) + ' lote(s) disponivel(is)</span></div>';
+  }
+  var lg = cr.larguras_utilizadas || [];
+  if (lg.length) {
+    h += '<div style="margin:4px 0;font-size:12px"><b>Larguras:</b> '
+       + '<span style="color:' + (lg.length > 1 ? 'var(--wn)' : 'var(--tx)') + '">'
+       + lg.map(function(x){ return x + 'm'; }).join(', ') + '</span>'
+       + (lg.length > 1 ? ' &#9888; larguras misturadas' : '') + '</div>';
+  }
+  return h;
 }
 
 function _renderResultadoAlocacao(data) {
@@ -2315,9 +2482,9 @@ function _renderResultadoAlocacao(data) {
 
   corList.forEach(function(cor) {
     var cr = (data.por_cor||{})[cor] || {};
-    var nomPorId = {};
-    (cr.rolos||[]).forEach(function(rl){ nomPorId[rl.rolo_indice] = rl.nominal_m; });
-    function _rotRolo(idx){ var nm = nomPorId[idx]; return 'rolo ' + idx + (nm!=null ? ' (' + nm + 'm)' : ''); }
+    var metaPorId = {};
+    (cr.rolos||[]).forEach(function(rl){ metaPorId[rl.rolo_indice] = rl; });
+    function _rotRolo(idx){ return _rotuloRoloMeta(metaPorId[idx], idx); }
     html += '<details style="margin-bottom:6px">';
     html += '<summary style="cursor:pointer;font-weight:600;padding:5px 8px;background:var(--sf2);border-radius:var(--r)">';
     html += cor+' &mdash; '+(cr.n_sub_enfestos||0)+' sub-enfesto(s), refugo '+(cr.refugo_percentual||0)+'%';
@@ -2327,6 +2494,7 @@ function _renderResultadoAlocacao(data) {
             + 'm (falta '+(+rcc.falta_liquida_m).toFixed(1)+'m + pontas '+(+rcc.fragmentacao_m).toFixed(1)+'m)</span>';
     else if (Object.keys(cr.camadas_em_deficit||{}).length) html += ' <span style="color:var(--er)">&#9888; deficit</span>';
     html += '</summary><div style="padding:8px;font-size:12px">';
+    html += _htmlLotesLarguras(cr);
     (cr.enfestos || []).forEach(function(e){
       var reap = (e.fontes||[]).some(function(f){return f.reaproveitada;});
       html += '<div style="margin:4px 0;font-weight:600">'
@@ -2375,10 +2543,19 @@ function _htmlImpressaoAlocacao(d, ref) {
 
   cores.forEach(function(cor) {
     var cr = d.por_cor[cor];
-    var nomPorId = {};
-    (cr.rolos||[]).forEach(function(rl){ nomPorId[rl.rolo_indice] = rl.nominal_m; });
-    function _rotRolo(idx){ var nm = nomPorId[idx]; return 'rolo ' + idx + (nm!=null ? ' (' + nm + 'm)' : ''); }
+    var metaPorId = {};
+    (cr.rolos||[]).forEach(function(rl){ metaPorId[rl.rolo_indice] = rl; });
+    function _rotRolo(idx){ return _rotuloRoloMeta(metaPorId[idx], idx); }
     h += '<div class="cor"><h2>' + cor + '</h2>';
+    var lt = cr.lotes || {};
+    if ((lt.utilizados||[]).length) {
+      h += '<div>Lote(s) utilizado(s): <b>' + lt.utilizados.join(', ') + '</b>'
+         + (lt.considerado ? (lt.utilizados.length === 1 ? ' (lote unico)' : ' (nao foi possivel um lote unico)') : '')
+         + '</div>';
+    }
+    var lg = cr.larguras_utilizadas || [];
+    if (lg.length) h += '<div>Largura(s): <b>' + lg.map(function(x){return x+'m';}).join(', ') + '</b>'
+                      + (lg.length > 1 ? ' &mdash; ATENCAO: larguras misturadas' : '') + '</div>';
     (cr.enfestos||[]).forEach(function(e){
       var reap = (e.fontes||[]).some(function(f){return f.reaproveitada;});
       h += '<div>' + (reap ? '&#8635; ' : '') + '<b>Mapa ' + e.mapa_id + '</b> (camada ' + e.comp_camada_m + 'm): '
@@ -2398,10 +2575,13 @@ function _htmlImpressaoAlocacao(d, ref) {
     h += '</div>';
   });
 
-  h += '<h2>Sobras totais por rolo</h2><table><tr><th>Cor</th><th>Rolo</th><th>Nominal (m)</th><th>Ponta (m)</th><th>Classe</th></tr>';
+  h += '<h2>Sobras totais por rolo</h2><table><tr><th>Cor</th><th>Rolo</th><th>N. Rolo</th><th>Lote</th><th>Largura (m)</th><th>Cor fornecedor</th><th>Nominal (m)</th><th>Ponta (m)</th><th>Classe</th></tr>';
   cores.forEach(function(cor) {
     (d.por_cor[cor].rolos||[]).forEach(function(s){
-      h += '<tr><td>' + cor + '</td><td>rolo ' + s.rolo_indice + '</td><td>' + s.nominal_m + '</td><td>' + s.ponta_m + '</td><td>' + s.ponta_classe + '</td></tr>';
+      h += '<tr><td>' + cor + '</td><td>rolo ' + s.rolo_indice + '</td>'
+         + '<td>' + (s.rolo_id || '-') + '</td><td>' + (s.lote || '-') + '</td>'
+         + '<td>' + (s.largura_m || '-') + '</td><td>' + (s.cor_fornecedor || '-') + '</td>'
+         + '<td>' + s.nominal_m + '</td><td>' + s.ponta_m + '</td><td>' + s.ponta_classe + '</td></tr>';
     });
   });
   h += '</table></body></html>';
@@ -2443,6 +2623,385 @@ async function exportarAlocacao() {
       st.textContent = 'Erro: ' + (res.erro || '?');
     }
   } catch(e) { st.textContent = 'Erro: ' + e.message; }
+}
+
+// ============================================================
+// PLANO DE CORTE PORTATIL (.plano.json) v2.13
+// ============================================================
+
+function _renderPlanoAlocacaoInfo() {
+  var el = document.getElementById('aloc-plano-info');
+  var btn = document.getElementById('aloc-plano-descartar');
+  if (!el) return;
+  if (_planoImportado) {
+    var pl = _planoImportado.plano || {};
+    el.innerHTML = '<b style="color:var(--ac)">importado: ' + (_planoImportado.referencia || '?') + '</b>'
+      + ' (' + ((pl.mapas || []).length) + ' mapa(s), ' + Object.keys(pl.camadas || {}).length + ' cor(es)'
+      + (_planoImportado.criado_em ? ', calculado em ' + _planoImportado.criado_em : '') + ')';
+    if (btn) btn.style.display = '';
+  } else if (_montarPlanoParaAlocacao()) {
+    el.textContent = 'usando o plano calculado acima (' + _getReferencia() + ')';
+    if (btn) btn.style.display = 'none';
+  } else {
+    el.textContent = 'nenhum (calcule acima ou importe um plano salvo)';
+    if (btn) btn.style.display = 'none';
+  }
+}
+
+// Auto-save do plano portatil no export: so em SUCESSO do export, so para
+// plano recem-calculado (importado ja tem arquivo) e sem duplicar o mesmo
+// plano em re-downloads (assinatura por referencia+mapas+camadas).
+var _assinaturaPlanoSalvo = null;
+async function _autoSalvarPlano() {
+  try {
+    if (_planoImportado) return;
+    var plano = _montarPlanoParaAlocacao();
+    if (!plano) return;
+    var assin = _getReferencia() + '|' + JSON.stringify(plano.camadas) + '|'
+      + JSON.stringify((plano.mapas || []).map(function(m) { return [m.id, m.comp_camada_m, m.n_pecas]; }));
+    if (assin === _assinaturaPlanoSalvo) return;
+    var nome = await salvarPlanoAtual(true);
+    if (nome) _assinaturaPlanoSalvo = assin;
+  } catch(e) {}
+}
+
+async function salvarPlanoAtual(silencioso) {
+  var st = document.getElementById('aloc-plano-st');
+  var plano = _montarPlanoParaAlocacao();
+  if (!plano) { if (!silencioso && st) st.textContent = 'Calcule um plano primeiro.'; return null; }
+  try {
+    var resp = await fetch('/salvar_plano', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({plano: plano, referencia: _getReferencia(),
+                            origem: (window._resultadoMulti ? 'multiref' : 'single')})});
+    var res = await resp.json();
+    if (res.erro) { if (!silencioso && st) st.textContent = 'Erro: ' + res.erro; return null; }
+    if (!silencioso && st) st.textContent = '✅ Plano salvo: ' + res.nome;
+    return res.nome;
+  } catch(e) { if (!silencioso && st) st.textContent = 'Erro: ' + e.message; return null; }
+}
+
+async function abrirPlanosSalvos() {
+  var box = document.getElementById('aloc-planos-lista');
+  if (!box) return;
+  if (box.style.display !== 'none') { box.style.display = 'none'; return; }
+  box.style.display = '';
+  box.innerHTML = 'Carregando planos salvos...';
+  try {
+    var res = await (await fetch('/planos_salvos')).json();
+    var planos = res.planos || [];
+    if (!planos.length) { box.innerHTML = 'Nenhum plano salvo ainda. Use "Salvar plano" apos calcular.'; return; }
+    var h = '<table style="font-size:12px;width:100%"><tr><th style="text-align:left">Referencia</th>'
+          + '<th style="text-align:left">Calculado em</th><th>Mapas</th><th style="text-align:left">Cores</th><th></th></tr>';
+    planos.forEach(function(p) {
+      h += '<tr><td><b>' + p.referencia + '</b></td><td>' + (p.criado_em || '') + '</td>'
+         + '<td style="text-align:center">' + p.n_mapas + '</td>'
+         + '<td>' + (p.cores || []).join(', ') + '</td>'
+         + '<td><button class="btn btn-s btn-sm" onclick="carregarPlanoSalvo(\'' + p.nome.replace(/'/g, '') + '\')">Usar</button></td></tr>';
+    });
+    box.innerHTML = h + '</table>';
+  } catch(e) { box.innerHTML = 'Erro ao listar planos: ' + e.message; }
+}
+
+async function carregarPlanoSalvo(nome) {
+  var st = document.getElementById('aloc-plano-st');
+  try {
+    var resp = await fetch('/carregar_plano', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({nome: nome})});
+    var doc = await resp.json();
+    if (doc.erro) { if (st) st.textContent = 'Erro: ' + doc.erro; return; }
+    _aplicarPlanoImportado(doc);
+    var box = document.getElementById('aloc-planos-lista');
+    if (box) box.style.display = 'none';
+  } catch(e) { if (st) st.textContent = 'Erro: ' + e.message; }
+}
+
+function importarArquivoPlano(input) {
+  var f = input.files && input.files[0];
+  input.value = '';
+  if (!f) return;
+  var st = document.getElementById('aloc-plano-st');
+  var reader = new FileReader();
+  reader.onload = async function() {
+    try {
+      var b64 = String(reader.result).split(',')[1] || '';
+      var resp = await fetch('/importar_plano', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({nome: f.name, dados: b64})});
+      var doc = await resp.json();
+      if (doc.erro) { if (st) st.textContent = 'Erro: ' + doc.erro; return; }
+      _aplicarPlanoImportado(doc);
+    } catch(e) { if (st) st.textContent = 'Erro: ' + e.message; }
+  };
+  reader.readAsDataURL(f);
+}
+
+function _aplicarPlanoImportado(doc) {
+  _planoImportado = doc;
+  // Comprimentos reais (Audaces) digitados para OUTRO plano nao podem
+  // contaminar o plano importado (mesmos ids de mapa, camadas diferentes).
+  window._compRealAudaces = {};
+  _esconderResultadoAlocacao();
+  _renderPlanoAlocacaoInfo();
+  atualizarCoresAlocacao();
+  var st = document.getElementById('aloc-plano-st');
+  if (st) st.textContent = '✅ Plano "' + (doc.referencia || '?') + '" pronto para alocacao.';
+}
+
+function descartarPlanoImportado() {
+  _planoImportado = null;
+  window._compRealAudaces = {};
+  _esconderResultadoAlocacao();
+  _renderPlanoAlocacaoInfo();
+  atualizarCoresAlocacao();
+}
+
+// ============================================================
+// IMPORTACAO DE ROLOS DO ERP (PDF) + EQUIVALENCIA DE CORES v2.13
+// ============================================================
+
+function _chaveRolo(r) {
+  // Dedup entre importacoes: mesmo numero de rolo (+lote) = mesmo rolo fisico.
+  return (r.rolo_id || '?') + '|' + (r.lote || '?') + '|' + (r.cor_fornecedor || '?');
+}
+
+function _rolosJaImportados() {
+  var s = new Set();
+  Object.keys(_rolosImportados).forEach(function(cor) {
+    (_rolosImportados[cor] || []).forEach(function(r) { if (r.rolo_id) s.add(_chaveRolo(r)); });
+  });
+  return s;
+}
+
+function _addRolosImportados(porCor) {
+  var vistos = _rolosJaImportados();
+  var novos = 0, repetidos = 0;
+  Object.keys(porCor || {}).forEach(function(cor) {
+    (porCor[cor] || []).forEach(function(r) {
+      if (r.rolo_id && vistos.has(_chaveRolo(r))) { repetidos++; return; }
+      if (r.rolo_id) vistos.add(_chaveRolo(r));
+      if (!_rolosImportados[cor]) _rolosImportados[cor] = [];
+      _rolosImportados[cor].push(r);
+      novos++;
+    });
+  });
+  return {novos: novos, repetidos: repetidos};
+}
+
+function importarRolosPdf(input) {
+  var files = Array.prototype.slice.call(input.files || []);
+  input.value = '';
+  if (!files.length) return;
+  var st = document.getElementById('aloc-import-st');
+  if (st) st.textContent = 'Lendo ' + files.length + ' arquivo(s)...';
+
+  var pendencias = {};   // cor_fornecedor -> [rolos]
+  var resumo = {rolos: 0, novos: 0, repetidos: 0, formatos: [], avisos: []};
+  var restantes = files.length;
+
+  files.forEach(function(f) {
+    var reader = new FileReader();
+    reader.onload = async function() {
+      try {
+        var b64 = String(reader.result).split(',')[1] || '';
+        var resp = await fetch('/importar_rolos', {method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({nome: f.name, dados: b64})});
+        var res = await resp.json();
+        if (res.erro) {
+          resumo.avisos.push(f.name + ': ' + res.erro);
+        } else {
+          resumo.rolos += res.total_rolos || 0;
+          if (res.formato && resumo.formatos.indexOf(res.formato) < 0) resumo.formatos.push(res.formato);
+          var r = _addRolosImportados(res.rolos_por_cor_comercial || {});
+          resumo.novos += r.novos; resumo.repetidos += r.repetidos;
+          Object.keys(res.nao_mapeados || {}).forEach(function(cf) {
+            pendencias[cf] = (pendencias[cf] || []).concat(res.nao_mapeados[cf]);
+          });
+          (res.linhas_nao_parseadas || []).forEach(function(l) {
+            if (String(l).indexOf('AVISO') === 0) resumo.avisos.push(f.name + ': ' + l);
+          });
+        }
+      } catch(e) { resumo.avisos.push(f.name + ': ' + e.message); }
+      restantes--;
+      if (restantes === 0) _finalizarImportRolos(pendencias, resumo);
+    };
+    reader.onerror = function() {
+      // Sem isto, um arquivo ilegivel travaria a importacao inteira em
+      // "Lendo N arquivo(s)..." para sempre.
+      resumo.avisos.push(f.name + ': falha ao ler o arquivo');
+      restantes--;
+      if (restantes === 0) _finalizarImportRolos(pendencias, resumo);
+    };
+    reader.readAsDataURL(f);
+  });
+}
+
+function _finalizarImportRolos(pendencias, resumo) {
+  var st = document.getElementById('aloc-import-st');
+  // MESCLA com pendencias de importacoes anteriores: importar um segundo PDF
+  // nao pode descartar cores ainda nao vinculadas do primeiro. Dedup por
+  // numero de rolo dentro de cada cor pendente.
+  var base = _equivPendentes || {};
+  Object.keys(pendencias).forEach(function(cf) {
+    var juntos = (base[cf] || []).concat(pendencias[cf]);
+    var vistos = {};
+    base[cf] = juntos.filter(function(r) {
+      if (!r.rolo_id) return true;
+      var k = _chaveRolo(r);
+      if (vistos[k]) return false;
+      vistos[k] = 1;
+      return true;
+    });
+  });
+  var nPend = Object.keys(base).length;
+  _equivPendentes = nPend ? base : null;
+
+  var msg = '✅ ' + resumo.rolos + ' rolo(s) lido(s)';
+  if (resumo.formatos.length) msg += ' [' + resumo.formatos.join(' + ') + ']';
+  if (resumo.novos) msg += ', ' + resumo.novos + ' adicionado(s)';
+  if (resumo.repetidos) msg += ', ' + resumo.repetidos + ' repetido(s) ignorado(s)';
+  if (nPend) msg += '. ' + nPend + ' cor(es) do fornecedor precisam de vinculo abaixo.';
+  if (resumo.avisos.length) msg += ' | ' + resumo.avisos.join(' | ');
+  if (st) st.textContent = msg;
+  _renderEquivalencias();
+  _esconderResultadoAlocacao();
+  atualizarCoresAlocacao();
+}
+
+function _coresDoPlanoParaVinculo() {
+  var s = [], seen = new Set();
+  function add(c) { if (c && !seen.has(c)) { seen.add(c); s.push(c); } }
+  var plano = _montarPlanoParaAlocacao();
+  if (plano) Object.keys(plano.camadas || {}).forEach(add);
+  Object.keys(_rolosImportados).forEach(add);
+  Object.keys(_rolosPorCor).forEach(add);
+  (typeof cadastroCores !== 'undefined' ? cadastroCores : []).forEach(add);
+  return s;
+}
+
+function _renderEquivalencias() {
+  var box = document.getElementById('aloc-equivalencias');
+  if (!box) return;
+  if (!_equivPendentes || !Object.keys(_equivPendentes).length) {
+    box.style.display = 'none'; box.innerHTML = ''; return;
+  }
+  var cores = _coresDoPlanoParaVinculo();
+  var h = '<div style="font-weight:600;font-size:12px;margin-bottom:6px">'
+        + 'Vincule a cor do fornecedor com a sua Cor Comercial (fica salvo para as proximas vezes):</div>';
+  Object.keys(_equivPendentes).forEach(function(cf, i) {
+    var rolos = _equivPendentes[cf] || [];
+    var tot = rolos.reduce(function(a, r) { return a + (r.comprimento_m || 0); }, 0);
+    h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:12px;flex-wrap:wrap">';
+    h += '<span style="min-width:220px"><b>' + cf + '</b> <span style="color:var(--tx2)">('
+       + rolos.length + ' rolo(s), ' + tot.toFixed(1) + 'm)</span></span>';
+    h += '<select class="equiv-sel" data-cf="' + encodeURIComponent(cf) + '" style="padding:4px 6px;border:1px solid var(--bd2);border-radius:var(--r);font-size:12px">';
+    h += '<option value="">-- escolher cor comercial --</option>';
+    cores.forEach(function(c) { h += '<option value="' + c + '">' + c + '</option>'; });
+    h += '<option value="__NOVA__">Outra (digitar)...</option>';
+    h += '<option value="__IGNORAR__">Ignorar esta cor</option>';
+    h += '</select></div>';
+  });
+  h += '<button class="btn btn-p btn-sm" type="button" onclick="confirmarEquivalencias()">Confirmar vinculos</button>';
+  box.innerHTML = h;
+  box.style.display = '';
+}
+
+async function confirmarEquivalencias() {
+  var box = document.getElementById('aloc-equivalencias');
+  var st = document.getElementById('aloc-import-st');
+  var sels = box ? box.querySelectorAll('.equiv-sel') : [];
+  var erros = [], resolvidos = 0;
+  for (var i = 0; i < sels.length; i++) {
+    var sel = sels[i];
+    var cf = decodeURIComponent(sel.dataset.cf);
+    var alvo = sel.value;
+    if (!alvo) continue;
+    if (alvo === '__IGNORAR__') { delete _equivPendentes[cf]; resolvidos++; continue; }
+    if (alvo === '__NOVA__') {
+      var digitada = prompt('Nome da Cor Comercial para "' + cf + '":');
+      if (!digitada) continue;
+      alvo = digitada.trim().toUpperCase();
+    }
+    try {
+      var resp = await fetch('/salvar_mapa_cor', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({cor_fornecedor: cf, cor_comercial: alvo})});
+      var res = await resp.json();
+      if (res.erro) { erros.push(cf + ': ' + res.erro); continue; }
+      var r = _addRolosImportados((function(){ var o = {}; o[alvo] = _equivPendentes[cf]; return o; })());
+      delete _equivPendentes[cf];
+      resolvidos++;
+    } catch(e) { erros.push(cf + ': ' + e.message); }
+  }
+  if (st) st.textContent = resolvidos + ' vinculo(s) confirmado(s).' + (erros.length ? ' Erros: ' + erros.join('; ') : '');
+  if (_equivPendentes && !Object.keys(_equivPendentes).length) _equivPendentes = null;
+  _renderEquivalencias();
+  _esconderResultadoAlocacao();
+  atualizarCoresAlocacao();
+}
+
+// ============================================================
+// VERSOES E RESTAURACAO v2.13
+// ============================================================
+
+async function carregarVersoes() {
+  var lista = document.getElementById('versoes-lista');
+  var status = document.getElementById('versoes-status');
+  if (!lista) return;
+  try {
+    var d = await (await fetch('/versoes')).json();
+    var h = '';
+    if (status) {
+      var s = '';
+      if (d.restauracao_pendente) {
+        s += '<div style="background:var(--wnb);border:1px solid var(--wn);border-radius:var(--r);padding:6px 10px;margin-bottom:6px">'
+           + '&#9203; Restauracao da versao <b>' + d.restauracao_pendente.versao + '</b> agendada para a proxima abertura. '
+           + '<button class="btn btn-s btn-sm" onclick="cancelarRestauracao()">Cancelar</button></div>';
+      }
+      if (d.pausado) {
+        s += '<div style="background:var(--sf2);border-radius:var(--r);padding:6px 10px;margin-bottom:6px">'
+           + '&#9208; Atualizacao automatica PAUSADA (versao ' + (d.pausado.versao_restaurada || '?') + ' restaurada em ' + (d.pausado.em || '?') + '). '
+           + '<button class="btn btn-s btn-sm" onclick="reativarUpdate()">Reativar atualizacoes</button></div>';
+      }
+      status.innerHTML = s;
+    }
+    var vs = d.versoes || [];
+    if (!vs.length) {
+      h = 'Nenhum snapshot ainda. O primeiro sera criado automaticamente no proximo update ou reinicio do sistema.';
+    } else {
+      h = '<table style="font-size:12px;width:100%"><tr><th style="text-align:left">Versao</th>'
+        + '<th style="text-align:left">Guardada em</th><th>Tamanho</th><th></th></tr>';
+      vs.forEach(function(v) {
+        h += '<tr><td><b>v' + v.versao + '</b>' + (v.atual ? ' <span style="color:var(--ok)">(atual)</span>' : '') + '</td>'
+           + '<td>' + (v.data || '') + '</td><td style="text-align:center">' + (v.tamanho_kb || 0) + ' KB</td>'
+           + '<td>' + (v.atual ? '' : '<button class="btn btn-s btn-sm" onclick="restaurarVersao(\'' + v.versao + '\')">Restaurar</button>') + '</td></tr>';
+      });
+      h += '</table>';
+    }
+    lista.innerHTML = h;
+  } catch(e) { lista.innerHTML = 'Erro ao carregar versoes: ' + e.message; }
+}
+
+async function restaurarVersao(versao) {
+  if (!confirm('Restaurar a versao ' + versao + '?\n\n'
+      + 'A restauracao acontece na PROXIMA abertura do sistema.\n'
+      + 'Seus dados (planos, cores, mapas de cor, resultados) sao preservados.\n'
+      + 'A atualizacao automatica ficara pausada ate voce reativar.')) return;
+  try {
+    var resp = await fetch('/restaurar_versao', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({versao: versao})});
+    var res = await resp.json();
+    if (res.erro) { alert('Erro: ' + res.erro); return; }
+    alert(res.mensagem + '\n\nFeche o sistema (botao Encerrar) e abra de novo pelo atalho para aplicar.');
+    carregarVersoes();
+  } catch(e) { alert('Erro: ' + e.message); }
+}
+
+async function cancelarRestauracao() {
+  try { await fetch('/cancelar_restauracao', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'}); } catch(e) {}
+  carregarVersoes();
+}
+
+async function reativarUpdate() {
+  try { await fetch('/reativar_update', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'}); } catch(e) {}
+  carregarVersoes();
 }
 
 // ============================================================

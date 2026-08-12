@@ -45,6 +45,20 @@ def _verificar_e_atualizar():
             print(f"[UPDATE] {msg}")
             return True
 
+        # Auto-update pausado por restauracao manual de versao? Nao verifica
+        # o GitHub (senao a proxima abertura desfaria a restauracao). O update
+        # MANUAL ("Atualizar agora" na interface) continua funcionando.
+        try:
+            from versoes import update_pausado
+            pausa = update_pausado()
+            if pausa:
+                print(f"[UPDATE] Atualizacao automatica pausada (versao "
+                      f"{pausa.get('versao_restaurada', '?')} restaurada manualmente). "
+                      f"Reative na secao Versoes da interface.")
+                return False
+        except Exception:
+            pass
+
         # Segundo: verifica GitHub por versão nova
         cfg_path = os.path.join(BASE_DIR, "config.json")
         if not os.path.exists(cfg_path):
@@ -90,7 +104,52 @@ def _verificar_e_atualizar():
         return False
 
 
+def _aplicar_restauracao():
+    """Aplica restauracao de versao agendada na interface (se houver).
+
+    Returns:
+        (houve_restauracao: bool, versao_anterior: str | None)
+    """
+    versao_anterior = None
+    try:
+        vf = os.path.join(BASE_DIR, "VERSION")
+        if os.path.exists(vf):
+            with open(vf, encoding="utf-8") as f:
+                versao_anterior = f.read().strip()
+    except OSError:
+        pass
+    try:
+        from versoes import aplicar_restauracao_pendente, restauracao_pendente
+        tinha_pendente = restauracao_pendente() is not None
+        houve, msg = aplicar_restauracao_pendente(
+            callback=lambda m: print(f"[RESTORE] {m}"))
+        if houve or tinha_pendente:
+            print(f"[RESTORE] {msg}")
+        return houve, versao_anterior
+    except Exception as e:
+        print(f"[RESTORE] Aviso: {e}. Continuando sem restaurar.")
+        return False, versao_anterior
+
+
+def _desfazer_restauracao(versao_anterior):
+    """Rollback da restauracao: o servidor nao subiu com a versao restaurada,
+    entao volta para a versao que estava rodando antes (cujo snapshot foi
+    criado no inicio da propria restauracao)."""
+    try:
+        from versoes import sinalizar_restauracao, aplicar_restauracao_pendente
+        sinalizar_restauracao(versao_anterior)
+        ok, msg = aplicar_restauracao_pendente(
+            callback=lambda m: print(f"[RESTORE-ROLLBACK] {m}"))
+        print(f"[RESTORE-ROLLBACK] {msg}")
+        return ok
+    except Exception as e:
+        print(f"[RESTORE-ROLLBACK] Falha: {e}")
+        return False
+
+
 def main():
+    # Restauracao de versao agendada tem prioridade sobre o auto-update.
+    houve_restauracao, versao_pre_restore = _aplicar_restauracao()
     houve_update = _verificar_e_atualizar()
 
     # --- Subir o servidor ---
@@ -129,6 +188,24 @@ def main():
                         print("[LAUNCHER] ERRO: servidor nao subiu mesmo apos rollback.")
             except Exception as e:
                 print(f"[LAUNCHER] Falha no rollback: {e}")
+        elif houve_restauracao and versao_pre_restore:
+            # A versao RESTAURADA nao subiu: volta para a versao que rodava
+            # antes (o snapshot dela foi criado no inicio da restauracao).
+            print("[LAUNCHER] ATENCAO: servidor nao subiu apos a restauracao. "
+                  f"Voltando para a versao {versao_pre_restore}...")
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+            if _desfazer_restauracao(versao_pre_restore):
+                proc = subprocess.Popen([python_exe, servidor_py])
+                for _ in range(20):
+                    time.sleep(0.5)
+                    if _servidor_respondendo():
+                        print("[LAUNCHER] Servidor de volta na versao anterior.")
+                        break
+                else:
+                    print("[LAUNCHER] ERRO: servidor nao subiu mesmo apos desfazer a restauracao.")
         else:
             print("[LAUNCHER] Servidor nao respondeu em 15s. Verifique erros em main.py.")
 

@@ -1,6 +1,6 @@
 # Enfestos Charth — Guia Rápido
 
-Versão 2.8.0 — Charth
+Versão 2.13.0 — Charth
 
 ---
 
@@ -34,7 +34,16 @@ Dê duplo clique em **`iniciar_visivel.bat`** — uma janela preta vai aparecer 
 - **Exportar planilha** — clique em "Exportar (.xlsx)" após calcular
 - **Upload de ordem de produção** — arraste um arquivo .xlsx ou .csv
 - **Alocação de Rolos** — seção no final da página para distribuir rolos por cor
-- **Importar rolos do ERP** — botão "Importar do ERP (PDF)" na seção Alocação
+- **Importar rolos do ERP** — botão "Importar rolos do ERP (PDF)" na seção Alocação.
+  Aceita os dois relatórios do sistema: Reserva de Tecidos e Estoque Total (ROLOS).
+  Na primeira vez, vincule a cor do fornecedor com a sua Cor Comercial — fica salvo.
+- **Considerar Lote** — marque o botão "Considerar Lote" para a alocação tentar
+  usar um único lote por cor (variação de tonalidade); desmarcado, ignora o lote
+- **Plano de corte salvo** — todo plano exportado também é salvo como arquivo
+  `.plano.json`; use "Carregar plano salvo" na seção Alocação para alocar rolos
+  em um plano de outro dia, sem recalcular
+- **Versões e restauração** — seção no final da página; toda versão fica guardada
+  e você pode voltar para qualquer versão anterior se uma atualização não agradar
 
 ---
 

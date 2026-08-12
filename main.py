@@ -1,7 +1,31 @@
 #!/usr/bin/env python3
 """
-PCP Enfestos v2.12.0
+PCP Enfestos v2.13.0
 Changelog:
+  v2.13.0 - VERSOES/RESTAURACAO + PLANO PORTATIL + ESTOQUE DE ROLOS + LOTE.
+            (1) Snapshot permanente de CADA versao que roda na maquina
+            (dados/_versoes/vX.Y.Z.zip) e restauracao pela secao "Versoes" da
+            UI: da para voltar a qualquer versao anterior, para sempre; apos
+            restaurar, o auto-update fica pausado ate ser reativado (senao a
+            proxima abertura desfaria a restauracao); update manual continua
+            funcionando. (2) Plano de corte portatil (.plano.json, formato
+            ADICIONAL -- as planilhas .xlsx nao mudaram): salvar, listar,
+            carregar e importar um plano calculado em outro dia so para alocar
+            rolos, sem recalcular (rotas /salvar_plano, /planos_salvos,
+            /carregar_plano, /importar_plano; salvo tambem automaticamente ao
+            exportar a planilha). (3) Importacao de rolos do ERP pela UI, com
+            os DOIS formatos de PDF do Vexta (Reserva de Tecidos e Estoque
+            Total/ROLOS, deteccao automatica pelo conteudo); parser da Reserva
+            reescrito para o layout real (artigos alfanumericos ou sem codigo,
+            cores com codigo numerico, tabela cruzando pagina); metadados de
+            cada rolo (nº, lote, LARGURA, cor do fornecedor) preservados ate o
+            resultado na UI, no Excel e no relatorio de impressao; vinculo de
+            equivalencia cor-fornecedor -> cor comercial na propria tela
+            (fica salvo em dados/mapa_cores.json). (4) Botao "Considerar
+            Lote" na alocacao: tenta atender cada cor com UM lote; se nao der,
+            usa o menor numero de lotes (busca exata por tamanho de combinacao
+            com poda + fallback greedy); desempate por menos larguras
+            distintas e menor sobra; alertas quando mistura lote ou largura.
   v2.12.0 - VELOCIDADE + AGRUPAMENTO DE VERDADE + ALOCACAO EXPLICADA.
             (1) Paralelismo real: solves rodam em PROCESSOS workers
             (engine/paralelo.py) com prioridade de CPU elevada; a UI dispara
@@ -75,7 +99,7 @@ from urllib.parse import urlparse
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
-VERSION      = "2.12.0"
+VERSION      = "2.13.0"
 CORES_FILE        = os.path.join(BASE_DIR, "dados", "cores_salvas.json")
 PARAMS_FILE       = os.path.join(BASE_DIR, "dados", "parametros_salvos.json")
 PID_FILE          = os.path.join(BASE_DIR, "dados", "servidor.pid")
@@ -131,8 +155,10 @@ def _importar():
     from engine.solver_multiref     import resolver_multiref
     from engine.alocador_rolos      import alocar_rolos as alocar_rolos_fn
     from engine.import_rolos.registry   import obter_fonte as obter_fonte_rolos
+    global aplicar_mapa_registros_fn
     from engine.import_rolos.mapa_cores import (
         aplicar_mapa  as aplicar_mapa_cores,
+        aplicar_mapa_registros as aplicar_mapa_registros_fn,
         resolver_cor  as resolver_cor_fn,
         adicionar_mapeamento as adicionar_mapeamento_fn,
         carregar_mapa as carregar_mapa_cores,
@@ -140,6 +166,9 @@ def _importar():
     )
     from updater import checar_atualizacao as checar_atualizacao_fn
     from updater import sinalizar_update_pendente as sinalizar_update_fn
+    global versoes_mod, planos_mod
+    import versoes as versoes_mod
+    from engine import planos as planos_mod
 
 _importar()
 
@@ -371,6 +400,17 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/paralelo":
             # Quantos solves simultaneos o backend suporta (p/ a UI dosar os fetches).
             self._send(200, {"workers": paralelo.n_workers()})
+        elif path == "/versoes":
+            # Snapshots locais + estado do auto-update (secao Versoes da UI).
+            self._send(200, {
+                "atual"               : VERSION,
+                "pausado"             : versoes_mod.update_pausado(),
+                "restauracao_pendente": versoes_mod.restauracao_pendente(),
+                "versoes"             : versoes_mod.listar_versoes(),
+            })
+        elif path == "/planos_salvos":
+            pasta = os.path.join(BASE_DIR, "dados", "resultados")
+            self._send(200, {"planos": planos_mod.listar_planos(pasta)})
         else:
             self.send_response(404); self.end_headers()
 
@@ -393,6 +433,12 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/importar_rolos":     self._importar_rolos(json.loads(body))
             elif path == "/salvar_mapa_cor":    self._salvar_mapa_cor(json.loads(body))
             elif path == "/sinalizar_update":   self._sinalizar_update(json.loads(body))
+            elif path == "/restaurar_versao":   self._restaurar_versao(json.loads(body))
+            elif path == "/cancelar_restauracao": self._cancelar_restauracao()
+            elif path == "/reativar_update":    self._reativar_update()
+            elif path == "/salvar_plano":       self._salvar_plano(json.loads(body))
+            elif path == "/carregar_plano":     self._carregar_plano(json.loads(body))
+            elif path == "/importar_plano":     self._importar_plano(json.loads(body))
             else: self._send(404, {"erro": "Rota nao encontrada"})
         except Exception as e:
             import traceback
@@ -762,6 +808,7 @@ class Handler(BaseHTTPRequestHandler):
         cfg["folga_incerteza_pct"]        = float(p.get("folga_pct", cfg.get("folga_incerteza_pct", 0.03)))
         cfg["folga_incerteza_m"]          = float(p.get("folga_m",   cfg.get("folga_incerteza_m", 0.0)))
         cfg["ponta_minima_util_m"]        = float(p.get("ponta_min", cfg.get("ponta_minima_util_m", 0.5)))
+        cfg["considerar_lote"]            = bool(p.get("considerar_lote", False))
 
         plano = p.get("plano", {})
         rolos = p.get("rolos", {})
@@ -844,13 +891,16 @@ class Handler(BaseHTTPRequestHandler):
             try: os.unlink(tmp_path)
             except OSError: pass
 
-        rolos_por_cor, cores_nao_reconhecidas = aplicar_mapa_cores(registros, MAPA_CORES_FILE)
+        # v2.13: preserva metadados (nº do rolo, lote, largura, cor fornecedor)
+        rolos_por_cor, nao_mapeados = aplicar_mapa_registros_fn(registros, MAPA_CORES_FILE)
 
         self._send(200, {
             "rolos_por_cor_comercial": rolos_por_cor,
-            "cores_nao_reconhecidas" : cores_nao_reconhecidas,
+            "nao_mapeados"           : nao_mapeados,
+            "cores_nao_reconhecidas" : sorted(nao_mapeados.keys()),
             "linhas_nao_parseadas"   : linhas_nao_parseadas,
             "total_rolos"            : len(registros),
+            "formato"                : fonte.nome_fonte(),
         })
 
     def _salvar_mapa_cor(self, p):
@@ -868,6 +918,61 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"ok": True, "novo": novo})
         except ValueError as e:
             self._send(409, {"erro": str(e)})
+
+    def _restaurar_versao(self, p):
+        """Agenda a restauracao de uma versao anterior (aplicada pelo launcher
+        na proxima abertura). Snapshots em dados/_versoes/."""
+        versao = str(p.get("versao", "")).strip()
+        if not versao:
+            self._send(400, {"erro": "Campo 'versao' e obrigatorio."})
+            return
+        try:
+            versoes_mod.sinalizar_restauracao(versao)
+            self._send(200, {"ok": True, "mensagem":
+                f"Versao {versao} sera restaurada na proxima abertura do sistema. "
+                f"O auto-update ficara pausado ate ser reativado."})
+        except ValueError as e:
+            self._send(400, {"erro": str(e)})
+
+    def _cancelar_restauracao(self):
+        versoes_mod.cancelar_restauracao()
+        self._send(200, {"ok": True})
+
+    def _reativar_update(self):
+        """Religa o auto-update apos uma restauracao manual de versao."""
+        with _io_lock:
+            versoes_mod.reativar_auto_update()
+        self._send(200, {"ok": True, "mensagem": "Auto-update reativado."})
+
+    def _salvar_plano(self, p):
+        """Salva o plano de corte no formato portatil .plano.json (formato
+        ADICIONAL -- as planilhas .xlsx continuam identicas)."""
+        pasta = os.path.join(BASE_DIR, "dados", "resultados")
+        try:
+            caminho = planos_mod.salvar_plano(
+                p.get("plano"), p.get("referencia", "REF"), pasta,
+                versao_app=VERSION, origem=p.get("origem", ""))
+            self._send(200, {"caminho": caminho, "nome": os.path.basename(caminho)})
+        except ValueError as e:
+            self._send(400, {"erro": str(e)})
+
+    def _carregar_plano(self, p):
+        """Carrega um plano portatil salvo em dados/resultados/."""
+        pasta = os.path.join(BASE_DIR, "dados", "resultados")
+        try:
+            doc = planos_mod.carregar_plano(pasta, p.get("nome", ""))
+            self._send(200, doc)
+        except ValueError as e:
+            self._send(400, {"erro": str(e)})
+
+    def _importar_plano(self, p):
+        """Importa um arquivo .plano.json enviado pela UI (base64)."""
+        try:
+            texto = base64.b64decode(p.get("dados", "")).decode("utf-8")
+            doc = planos_mod.parsear_plano_json(texto)
+            self._send(200, doc)
+        except (ValueError, UnicodeDecodeError) as e:
+            self._send(400, {"erro": f"Arquivo de plano invalido: {e}"})
 
     def _checar_update(self):
         """Consulta GitHub Releases e retorna info de update disponivel."""
@@ -945,6 +1050,12 @@ def _matar_zumbi_porta(porta):
 def main():
     global _servidor_ref
     _ensure_dados()
+    # Snapshot permanente da versao atual (dados/_versoes/): garante que toda
+    # versao que rodou nesta maquina pode ser restaurada depois. Idempotente.
+    try:
+        versoes_mod.criar_snapshot(motivo="boot do servidor")
+    except Exception:
+        pass
     # Pool de calculo: prioridade dos workers via config ("prioridade_cpu":
     # "alta" -> HIGH; default acima do normal) e teto de workers opcional.
     try:

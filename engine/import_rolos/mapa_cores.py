@@ -96,6 +96,53 @@ def adicionar_mapeamento(cor_fornecedor, cor_comercial, caminho_json):
     return True
 
 
+def aplicar_mapa_registros(registros, caminho_json):
+    """
+    Como aplicar_mapa, mas PRESERVA os metadados de cada rolo (numero do rolo,
+    lote, largura, cor do fornecedor) -- necessario para a alocacao mostrar
+    esses dados no resultado.
+
+    Args:
+        registros: list[dict] com 'cor_fornecedor' (saida de FonteRolos.extrair)
+        caminho_json: caminho para mapa_cores.json
+
+    Returns:
+        (rolos_por_cor, nao_mapeados)
+        - rolos_por_cor: {"COR_COMERCIAL": [rolo_dict, ...]} onde cada rolo tem
+          comprimento_m, rolo_id, lote, largura_m, cor_fornecedor, artigo, reservado.
+        - nao_mapeados: {"COR_FORNECEDOR": [rolo_dict, ...]} rolos cuja cor de
+          fornecedor ainda nao tem equivalencia (a UI pede o vinculo e re-aplica).
+    """
+    # Carrega o mapa UMA vez e resolve em memoria (evita reler o JSON por rolo).
+    mapa = carregar_mapa(caminho_json)
+    idx  = {}
+    for cor_comercial, dados in mapa.items():
+        for fornecedor in dados.get("fornecedores", []):
+            idx[_normalizar(fornecedor)] = cor_comercial
+
+    rolos_por_cor = {}
+    nao_mapeados  = {}
+
+    for reg in registros:
+        cf   = reg.get("cor_fornecedor", "")
+        rolo = {
+            "comprimento_m" : reg.get("comprimento_m"),
+            "rolo_id"       : reg.get("rolo_id"),
+            "lote"          : reg.get("lote"),
+            "largura_m"     : reg.get("largura_m"),
+            "cor_fornecedor": cf,
+            "artigo"        : reg.get("artigo"),
+            "reservado"     : bool(reg.get("reservado")),
+        }
+        cor = idx.get(_normalizar(cf))
+        if cor:
+            rolos_por_cor.setdefault(cor, []).append(rolo)
+        else:
+            nao_mapeados.setdefault(cf, []).append(rolo)
+
+    return rolos_por_cor, nao_mapeados
+
+
 def aplicar_mapa(registros, caminho_json):
     """
     Aplica o mapeamento de cores a uma lista de registros extraidos do ERP.

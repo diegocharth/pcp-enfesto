@@ -1226,17 +1226,28 @@ def _aba_cor_alocacao(wb, cor, cor_res):
     ws.column_dimensions["B"].width = 18
     ws.column_dimensions["C"].width = 18
     ws.column_dimensions["D"].width = 14
-    ws.column_dimensions["E"].width = 10
+    ws.column_dimensions["E"].width = 22
     ws.column_dimensions["F"].width = 14
     ws.column_dimensions["G"].width = 14
+    ws.column_dimensions["H"].width = 12
+    ws.column_dimensions["I"].width = 10
 
-    # Mapa indice->nominal p/ identificar cada rolo pelo tamanho (nao so "rolo N").
-    _nom_por_indice = {rl.get("rolo_indice"): rl.get("nominal_m")
-                       for rl in cor_res.get("rolos", [])}
+    # Mapa indice->dados p/ identificar cada rolo (nº real, lote, largura, tamanho).
+    _rolo_por_indice = {rl.get("rolo_indice"): rl for rl in cor_res.get("rolos", [])}
 
     def _rotulo_rolo(idx):
-        nm = _nom_por_indice.get(idx)
-        return f"rolo {idx} ({nm}m)" if nm is not None else f"rolo {idx}"
+        rl = _rolo_por_indice.get(idx) or {}
+        nm = rl.get("nominal_m")
+        rid = rl.get("rolo_id")
+        base = f"rolo {rid}" if rid else f"rolo {idx}"
+        detalhes = []
+        if nm is not None:
+            detalhes.append(f"{nm}m")
+        if rl.get("lote"):
+            detalhes.append(f"lote {rl['lote']}")
+        if rl.get("largura_m"):
+            detalhes.append(f"larg {rl['largura_m']}m")
+        return base + (f" ({', '.join(detalhes)})" if detalhes else "")
 
     r = 1
     _cel(ws, r, 1, f"Cor: {cor}", negrito=True, tamanho=12,
@@ -1259,6 +1270,22 @@ def _aba_cor_alocacao(wb, cor, cor_res):
         fundo = C_VERMELHO if label == "Tecido a comprar (m)" and valor > 0 else C_CINZA_HDR
         _cel(ws, r, 1, label, negrito=True, fundo=fundo)
         _cel(ws, r, 2, valor, alinha="right")
+        r += 1
+
+    # Lotes e larguras utilizados (v2.13: rolos importados do ERP)
+    lotes_info = cor_res.get("lotes") or {}
+    if lotes_info.get("utilizados"):
+        label = "Lotes utilizados"
+        if lotes_info.get("considerado"):
+            label += " (lote considerado)"
+        _cel(ws, r, 1, label, negrito=True, fundo=C_CINZA_HDR)
+        _cel(ws, r, 2, ", ".join(lotes_info["utilizados"]), alinha="right")
+        r += 1
+    largs = cor_res.get("larguras_utilizadas") or []
+    if largs:
+        fundo = C_AMARELO if len(largs) > 1 else C_CINZA_HDR
+        _cel(ws, r, 1, "Larguras utilizadas (m)", negrito=True, fundo=fundo)
+        _cel(ws, r, 2, ", ".join(str(x) for x in largs), alinha="right")
         r += 1
 
     # Balanco de compra da cor (v2.12)
@@ -1315,28 +1342,47 @@ def _aba_cor_alocacao(wb, cor, cor_res):
 
     r += 1
 
-    # ── Sobras por rolo ──────────────────────────────────────────────────────
+    # ── Rolos utilizados e sobras ────────────────────────────────────────────
     rolos = cor_res.get("rolos", [])
     if rolos:
+        tem_meta = any(rl.get("rolo_id") or rl.get("lote") or rl.get("largura_m")
+                       or rl.get("cor_fornecedor") for rl in rolos)
         _cel(ws, r, 1, "Sobras por rolo", negrito=True, fundo=C_AZUL_MED, cor_txt=C_BRANCO)
-        ws.merge_cells(f"A{r}:G{r}")
+        ws.merge_cells(f"A{r}:I{r}")
         r += 1
-        headers = ["Rolo", "Nominal (m)", "Usado (m)", "Ponta (m)", "Classe"]
+        if tem_meta:
+            headers = ["Rolo", "N. Rolo", "Lote", "Largura (m)", "Cor fornecedor",
+                       "Nominal (m)", "Usado (m)", "Ponta (m)", "Classe"]
+        else:
+            headers = ["Rolo", "Nominal (m)", "Usado (m)", "Ponta (m)", "Classe"]
         for col, h in enumerate(headers, 1):
             _cel(ws, r, col, h, negrito=True, fundo=C_CINZA_HDR, alinha="center")
         r += 1
         for rolo in rolos:
             fundo = C_VERDE if rolo.get("ponta_classe") == "estoque" else C_CINZA_ALT
-            vals = [
-                f"rolo {rolo['rolo_indice']}",
-                rolo["nominal_m"],
-                rolo["usado_m"],
-                rolo["ponta_m"],
-                rolo["ponta_classe"],
-            ]
+            if tem_meta:
+                vals = [
+                    f"rolo {rolo['rolo_indice']}",
+                    rolo.get("rolo_id") or "—",
+                    rolo.get("lote") or "—",
+                    rolo.get("largura_m") or "—",
+                    rolo.get("cor_fornecedor") or "—",
+                    rolo["nominal_m"],
+                    rolo["usado_m"],
+                    rolo["ponta_m"],
+                    rolo["ponta_classe"],
+                ]
+            else:
+                vals = [
+                    f"rolo {rolo['rolo_indice']}",
+                    rolo["nominal_m"],
+                    rolo["usado_m"],
+                    rolo["ponta_m"],
+                    rolo["ponta_classe"],
+                ]
             for col, v in enumerate(vals, 1):
                 _cel(ws, r, col, v, fundo=fundo,
-                     alinha="center" if col in (1, 5) else "right")
+                     alinha="center" if col in (1, len(vals)) else "right")
             r += 1
 
 

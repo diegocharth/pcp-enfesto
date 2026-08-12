@@ -137,3 +137,39 @@ def test_persistencia_roundtrip(tmp_path):
 def test_carregar_arquivo_inexistente(tmp_path):
     caminho = str(tmp_path / "nao_existe.json")
     assert carregar_mapa(caminho) == {}
+
+
+# ---------------------------------------------------------------------------
+# 5. aplicar_mapa_registros (v2.13: preserva metadados dos rolos)
+# ---------------------------------------------------------------------------
+
+def test_aplicar_mapa_registros_preserva_metadados(tmp_path):
+    from engine.import_rolos.mapa_cores import aplicar_mapa_registros, salvar_mapa
+    caminho = str(tmp_path / "mapa.json")
+    salvar_mapa({"MALVA": {"fornecedores": ["FRAPE"]}}, caminho)
+    registros = [
+        {"cor_fornecedor": "FRAPE", "comprimento_m": 63.0, "rolo_id": "4370",
+         "lote": "3554557", "largura_m": 1.4, "artigo": "LINHO SUPREME",
+         "reservado": True, "linha_original": "x"},
+        {"cor_fornecedor": "DESCONHECIDA", "comprimento_m": 10.0, "rolo_id": "9",
+         "lote": None, "largura_m": None, "artigo": None,
+         "reservado": False, "linha_original": "y"},
+    ]
+    por_cor, nao_map = aplicar_mapa_registros(registros, caminho)
+    assert list(por_cor.keys()) == ["MALVA"]
+    rolo = por_cor["MALVA"][0]
+    assert rolo["rolo_id"] == "4370"
+    assert rolo["lote"] == "3554557"
+    assert rolo["largura_m"] == 1.4
+    assert rolo["cor_fornecedor"] == "FRAPE"
+    assert list(nao_map.keys()) == ["DESCONHECIDA"]
+    assert nao_map["DESCONHECIDA"][0]["rolo_id"] == "9"
+
+
+def test_aplicar_mapa_registros_case_insensitive(tmp_path):
+    from engine.import_rolos.mapa_cores import aplicar_mapa_registros, salvar_mapa
+    caminho = str(tmp_path / "mapa.json")
+    salvar_mapa({"MALVA": {"fornecedores": ["Frape"]}}, caminho)
+    registros = [{"cor_fornecedor": "  frape ", "comprimento_m": 5.0}]
+    por_cor, nao_map = aplicar_mapa_registros(registros, caminho)
+    assert "MALVA" in por_cor and not nao_map

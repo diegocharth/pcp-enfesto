@@ -11,6 +11,9 @@ dados/ordens/
 dados/logs/
 dados/_update_pendente/
 dados/_backup_versao_anterior/
+dados/_versoes/
+dados/_restore_pendente/
+dados/_update_pausado.json
 
 # Python
 __pycache__/

@@ -139,3 +139,126 @@ def test_arquivo_inexistente():
     fonte = FonteVextaPdf()
     with pytest.raises(FileNotFoundError):
         fonte.extrair("/caminho/que/nao/existe.pdf")
+
+
+# ---------------------------------------------------------------------------
+# Testes sinteticos do formato novo (OP 6925): artigo alfanumerico ou sem
+# codigo, cor com codigo numerico, titulo da OP repetido por pagina.
+# ---------------------------------------------------------------------------
+
+LINHAS_OP_6925 = [
+    "OP: 6925",
+    "RESERVA DE TECIDOS",
+    "VESTIDO LIDIANE",
+    "1 - Reservados",
+    "P11AC0012 CETIM COM ELASTANO NEW",
+    "409251 PINK LADY",
+    "Num Rolo Lote Qt Reservada Requisicao",
+    "4347 3014383979 54,00",
+    "4348 3014383983 33,00",
+    "Requisicao: 83,74 87,00",
+    "OFF WHITE",
+    "Num Rolo Lote Qt Reservada Requisicao",
+    "3082 2 71,00",
+    "Requisicao: 67,94 71,00",
+    "LINHO SUPREME",
+    "FRAPE",
+    "Num Rolo Lote Qt Reservada Requisicao",
+    "4370 3554557 63,00",
+    "Emitido em 11/08/2026 14:35:07 LUCAS RUAS REZENDE Folha 1",
+    "OP: 6925",
+    "RESERVA DE TECIDOS",
+    "VESTIDO LIDIANE",
+    "Requisicao: 162,18 162,00",
+    "2 - Nao Reservados",
+    "P11AC0019 GLOSS SPAN",
+    "00070 BLUE SPACE",
+    "Num Rolo Lote Qt Reservada Requisicao",
+    "Requisicao: 117,71",
+    "Emitido em 11/08/2026 14:35:07 LUCAS RUAS REZENDE Folha 2",
+]
+
+
+def _extrair_sintetico():
+    from engine.import_rolos.fonte_vexta_pdf import FonteVextaPdf
+    return FonteVextaPdf().extrair_de_linhas(LINHAS_OP_6925)
+
+
+def test_sintetico_total_e_sem_nao_parseadas():
+    registros, nao = _extrair_sintetico()
+    assert len(registros) == 4
+    assert nao == []
+
+
+def test_sintetico_cor_com_codigo_numerico_nao_vira_artigo():
+    """'409251 PINK LADY' e uma COR (apesar do codigo de 6 digitos)."""
+    registros, _ = _extrair_sintetico()
+    pink = [r for r in registros if r["cor_fornecedor"] == "409251 PINK LADY"]
+    assert len(pink) == 2
+    assert pink[0]["artigo"] == "P11AC0012 CETIM COM ELASTANO NEW"
+    assert pink[0]["rolo_id"] == "4347"
+    assert pink[0]["lote"] == "3014383979"
+    assert pink[0]["largura_m"] is None
+
+
+def test_sintetico_segunda_cor_do_mesmo_artigo():
+    registros, _ = _extrair_sintetico()
+    off = [r for r in registros if r["cor_fornecedor"] == "OFF WHITE"]
+    assert len(off) == 1
+    assert off[0]["artigo"] == "P11AC0012 CETIM COM ELASTANO NEW"
+
+
+def test_sintetico_artigo_sem_codigo():
+    registros, _ = _extrair_sintetico()
+    frape = [r for r in registros if r["cor_fornecedor"] == "FRAPE"]
+    assert len(frape) == 1
+    assert frape[0]["artigo"] == "LINHO SUPREME"
+
+
+def test_sintetico_nao_reservados_sem_registros():
+    registros, _ = _extrair_sintetico()
+    assert not any("BLUE SPACE" in r["cor_fornecedor"] for r in registros)
+
+
+def test_sintetico_tabela_atravessa_pagina():
+    """Rolos antes da quebra de pagina sao registrados; o titulo da OP repetido
+    no topo da pagina 2 nao vira cor."""
+    registros, _ = _extrair_sintetico()
+    cores = {r["cor_fornecedor"] for r in registros}
+    assert "VESTIDO LIDIANE" not in cores
+
+
+def test_linha_malformada_dentro_da_tabela_vira_aviso():
+    """Rolo com lote nao-numerico nao pode sumir em silencio: vira aviso."""
+    from engine.import_rolos.fonte_vexta_pdf import FonteVextaPdf
+    linhas = [
+        "OP: 1", "RESERVA DE TECIDOS", "PECA X", "1 - Reservados",
+        "ARTIGO Y", "COR Z",
+        "Num Rolo Lote Qt Reservada Requisicao",
+        "1732 883555 22,00",
+        "1740 88355A 53,00",
+        "Requisicao: 75,00 75,00",
+    ]
+    registros, nao = FonteVextaPdf().extrair_de_linhas(linhas)
+    assert len(registros) == 1
+    assert any("88355A" in l for l in nao)
+
+
+def test_cor_igual_ao_titulo_da_op_nao_e_engolida():
+    """Uma cor com o mesmo nome do titulo da OP so e filtrada no topo da pagina."""
+    from engine.import_rolos.fonte_vexta_pdf import FonteVextaPdf
+    linhas = [
+        "OP: 2", "RESERVA DE TECIDOS", "NATURAL",   # titulo da OP = NATURAL
+        "1 - Reservados",
+        "LINHO SUPREME", "FRAPE",
+        "Num Rolo Lote Qt Reservada Requisicao",
+        "1 10 10,00",
+        "Requisicao: 10,00 10,00",
+        "NATURAL",                                    # cor NATURAL (nao e titulo!)
+        "Num Rolo Lote Qt Reservada Requisicao",
+        "2 20 20,00",
+        "Requisicao: 20,00 20,00",
+    ]
+    registros, _ = FonteVextaPdf().extrair_de_linhas(linhas)
+    cores = {r["cor_fornecedor"]: r["rolo_id"] for r in registros}
+    assert cores == {"FRAPE": "1", "NATURAL": "2"}
