@@ -1,7 +1,17 @@
 #!/usr/bin/env python3
 """
-PCP Enfestos v2.13.0
+PCP Enfestos v2.13.1
 Changelog:
+  v2.13.1 - Parser do Estoque Total (ROLOS) cobre TODAS as variantes reais do
+            relatorio: (1) cabecalho de grupo SEM codigo numerico de artigo
+            ("SPINATO RIGATO LUREX - AZUL NEVOA"); (2) relatorio filtrado sem
+            NENHUM cabecalho de grupo -- a cor passa a ser extraida da propria
+            linha do rolo (MATERIAL_NOME "ARTIGO - COR" embutido), que agora e
+            o caminho primario, com guarda contra nomes quebrados de linha;
+            (3) rolos com saldo 0 nao viram registro mas CONTAM no totalizador
+            "N rolos" do PDF (antes disparavam falso aviso de contagem).
+            Caso real que motivou: ESTOQUE SPINATO RIGATO LUREX lia 0 de 45
+            rolos; agora le 33 com saldo + 12 zerados, contagem batendo.
   v2.13.0 - VERSOES/RESTAURACAO + PLANO PORTATIL + ESTOQUE DE ROLOS + LOTE.
             (1) Snapshot permanente de CADA versao que roda na maquina
             (dados/_versoes/vX.Y.Z.zip) e restauracao pela secao "Versoes" da
@@ -99,7 +109,7 @@ from urllib.parse import urlparse
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
-VERSION      = "2.13.0"
+VERSION      = "2.13.1"
 CORES_FILE        = os.path.join(BASE_DIR, "dados", "cores_salvas.json")
 PARAMS_FILE       = os.path.join(BASE_DIR, "dados", "parametros_salvos.json")
 PID_FILE          = os.path.join(BASE_DIR, "dados", "servidor.pid")

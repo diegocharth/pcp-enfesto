@@ -44,7 +44,9 @@ except ImportError:
 _RE_CAUDA_ROLO = re.compile(
     r"(\d+)\s+(\d+)\s+(\S+)\s+(\d[\d.,]*)\s+(\d[\d.,]*)\s*$"
 )
-# Cabecalho de grupo: codigo do artigo (5-6 digitos) + nome, SEM cauda de rolo.
+# Cabecalho de grupo COM codigo de artigo: "122448 CREPE PATOU - COR".
+# Ha relatorios SEM o codigo ("SPINATO RIGATO LUREX - AZUL NEVOA") -- esses
+# sao reconhecidos por conterem " - " (tratados no corpo do parser).
 _RE_GRUPO      = re.compile(r"^(\d{5,6})\s+(.+)$")
 _RE_TOTAL      = re.compile(r"^(\d+)\s+rolos?\s*$", re.IGNORECASE)
 _RE_CABECALHO  = re.compile(r"MATERIAL_CODIGO", re.IGNORECASE)
@@ -112,10 +114,11 @@ class FonteVextaEstoquePdf(FonteRolos):
         registros            = []
         linhas_nao_parseadas = []
 
-        artigo_atual = None
-        cor_atual    = None
-        header_atual = None   # texto original do cabecalho de grupo vigente
-        total_pdf    = None   # totalizador "97 rolos" do proprio PDF (validacao)
+        artigo_atual  = None
+        cor_atual     = None
+        header_atual  = None   # texto original do cabecalho de grupo vigente
+        total_pdf     = None   # totalizador "97 rolos" do proprio PDF (validacao)
+        rolos_zerados = 0      # rolos com saldo 0 (contam no totalizador)
 
         for idx, linha_orig in enumerate(linhas):
             linha = linha_orig.strip()
@@ -138,27 +141,52 @@ class FonteVextaEstoquePdf(FonteRolos):
                 lote    = re.sub(r"\(cid:\d+\)", "", m_rolo.group(3)).strip()
                 if lote in ("0", ""):
                     lote = None
-                if metros and cor_atual:
+
+                # Cor embutida NA PROPRIA linha: o MATERIAL_NOME "ARTIGO - COR"
+                # vem antes dos numeros. E o caminho mais confiavel -- funciona
+                # inclusive em relatorios SEM cabecalho de grupo. So falta
+                # quando o nome quebrou de linha (dai vale o cabecalho vigente).
+                prefixo = linha[:m_rolo.start()].strip()
+                cor_row = None
+                if " - " in prefixo:
+                    cor_row = prefixo.split(" - ", 1)[1].strip() or None
+                # Guarda contra truncamento: cor da linha que e prefixo estrito
+                # da cor do cabecalho = nome quebrado -> usa a do cabecalho.
+                if (cor_row and cor_atual and cor_atual.startswith(cor_row)
+                        and len(cor_row) < len(cor_atual)):
+                    cor_row = None
+                cor    = cor_row or cor_atual
+                artigo = artigo_atual if (cor_row is None or cor_row == cor_atual) \
+                         else None
+
+                if metros is None:
+                    # Saldo 0 = rolo vazio no ERP: nao importa tecido nenhum,
+                    # mas CONTA no totalizador "N rolos" do proprio PDF.
+                    rolos_zerados += 1
+                    continue
+                if cor:
                     registros.append({
-                        "cor_fornecedor": cor_atual,
+                        "cor_fornecedor": cor,
                         "comprimento_m" : metros,
                         "rolo_id"       : m_rolo.group(2),
                         "lote"          : lote,
                         "largura_m"     : largura,
-                        "artigo"        : artigo_atual,
+                        "artigo"        : artigo,
                         "reservado"     : False,
                         "linha_original": linha_orig,
                     })
-                elif metros and not cor_atual:
+                else:
                     linhas_nao_parseadas.append(linha_orig)
                 continue
 
             if _e_linha_ignorada(linha):
                 continue
 
-            # Cabecalho de GRUPO: "122448 CREPE PATOU - 27339A SILVER BIRCH"
+            # Cabecalho de GRUPO. Duas formas reais:
+            #   "122448 CREPE PATOU - 27339A SILVER BIRCH"  (com codigo de artigo)
+            #   "SPINATO RIGATO LUREX - AZUL NEVOA"         (sem codigo)
             m_grupo = _RE_GRUPO.match(linha)
-            if m_grupo:
+            if m_grupo or " - " in linha:
                 # Fragmento de celula quebrada: quando o nome do material quebra
                 # de linha, o pdfplumber emite [PREFIXO do cabecalho vigente,
                 # linha do rolo, palavra orfa que completa o nome]. Um prefixo
@@ -174,13 +202,18 @@ class FonteVextaEstoquePdf(FonteRolos):
                     if e_fragmento:
                         continue
                 header_atual = linha
-                nome = m_grupo.group(2).strip()
+                if m_grupo:
+                    codigo = m_grupo.group(1) + " "
+                    nome   = m_grupo.group(2).strip()
+                else:
+                    codigo = ""
+                    nome   = linha
                 if " - " in nome:
                     artigo_nome, cor = nome.split(" - ", 1)
-                    artigo_atual = (m_grupo.group(1) + " " + artigo_nome).strip()
+                    artigo_atual = (codigo + artigo_nome).strip()
                     cor_atual    = cor.strip()
                 else:
-                    artigo_atual = (m_grupo.group(1) + " " + nome).strip()
+                    artigo_atual = (codigo + nome).strip()
                     cor_atual    = nome
                 continue
 
@@ -189,11 +222,15 @@ class FonteVextaEstoquePdf(FonteRolos):
             if any(ch.isdigit() for ch in linha):
                 linhas_nao_parseadas.append(linha_orig)
 
-        # Validacao contra o totalizador do proprio PDF.
-        if total_pdf is not None and total_pdf != len(registros):
+        # Validacao contra o totalizador do proprio PDF (rolos com saldo 0
+        # contam no total do relatorio, mas nao viram registro importavel).
+        reconhecidos = len(registros) + rolos_zerados
+        if total_pdf is not None and total_pdf != reconhecidos:
             linhas_nao_parseadas.append(
                 f"AVISO: o PDF informa {total_pdf} rolos, mas o parser "
-                f"reconheceu {len(registros)}. Confira as linhas nao parseadas."
+                f"reconheceu {reconhecidos} ({len(registros)} com saldo"
+                + (f" + {rolos_zerados} zerados" if rolos_zerados else "")
+                + "). Confira as linhas nao parseadas."
             )
 
         return registros, linhas_nao_parseadas
