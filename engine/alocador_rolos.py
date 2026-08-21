@@ -52,7 +52,8 @@ COMP_SEGURO:
     comp_seguro = comp_nominal x (1 - folga_incerteza_pct)
   Motivo: o comprimento informado pelo ERP pode nao bater com o rolo fisico. Se alocarmos
   ate o limite nominal e o rolo real for mais curto, criamos exatamente a emenda que
-  queremos evitar. A folga de incerteza (default 3%) cobre essa imprecisao.
+  queremos evitar. A folga de incerteza (default 1%, editavel na tela de
+  alocacao) cobre essa imprecisao.
 
 HIERARQUIA DE PERDA (do mais grave ao menos importante):
   1. EMENDA            -- proibicao dura; resolvida pelo comp_seguro (nunca ocorre).
@@ -84,7 +85,7 @@ def _comp_seguro(nominal, config):
     folga_m = float(config.get("folga_incerteza_m", 0.0))
     if folga_m > 0:
         return max(0.0, float(nominal) - folga_m)
-    folga_pct = float(config.get("folga_incerteza_pct", 0.03))
+    folga_pct = float(config.get("folga_incerteza_pct", 0.01))
     return max(0.0, float(nominal) * (1.0 - folga_pct))
 
 
@@ -849,7 +850,7 @@ def alocar_rolos(plano, rolos, config):
 
     params = {
         "margem_seguranca_enfesto_m": round(float(margem), 4),
-        "folga_incerteza_pct": float(config.get("folga_incerteza_pct", 0.03)),
+        "folga_incerteza_pct": float(config.get("folga_incerteza_pct", 0.01)),
         "folga_incerteza_m": float(config.get("folga_incerteza_m", 0.0)),
         "ponta_minima_util_m": float(ponta_min),
         "considerar_lote": considerar_lote,

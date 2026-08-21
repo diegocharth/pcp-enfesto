@@ -329,8 +329,8 @@ input:focus,select:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 2p
     </div>
     <div class="field">
       <label>Folga de incerteza do rolo (%)</label>
-      <input type="number" id="aloc-folga" value="3" step="0.5" min="0" max="20">
-      <div class="hint">Desconto sobre o comprimento nominal (3% = default).</div>
+      <input type="number" id="aloc-folga" value="1" step="0.5" min="0" max="20">
+      <div class="hint">Desconto sobre o comprimento nominal (1% = padrao; 0 = confiar no metro do ERP).</div>
     </div>
     <div class="field">
       <label>Ponta minima util (m)</label>
@@ -2199,7 +2199,11 @@ async function iniciarAlocacao() {
     plano: plano,
     rolos: rolos,
     margem:    parseFloat(document.getElementById('aloc-margem').value) || 0.10,
-    folga_pct: (parseFloat(document.getElementById('aloc-folga').value) || 3) / 100,
+    // folga 0 e valor valido (confiar no nominal) -- nao usar || aqui.
+    folga_pct: (function(){
+      var v = parseFloat(document.getElementById('aloc-folga').value);
+      return (isNaN(v) || v < 0 ? 1 : v) / 100;
+    })(),
     ponta_min: parseFloat(document.getElementById('aloc-ponta-min').value) || 0.5,
     considerar_lote: !!(document.getElementById('aloc-considerar-lote') || {}).checked,
   };

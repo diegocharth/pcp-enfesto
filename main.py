@@ -10,7 +10,9 @@ Changelog:
             demanda com os k maiores rolos); (3) a tabela de sobras lista
             APENAS os rolos utilizados -- os demais viram o contador
             "rolos nao utilizados" (por cor e no resumo geral), inclusive
-            rolos de cores fora do plano (com alerta).
+            rolos de cores fora do plano (com alerta); (4) default da folga
+            de incerteza baixou de 3% para 1% (campo editavel na tela de
+            alocacao; digitar 0 agora vale 0, nao volta ao default).
   v2.13.1 - Parser do Estoque Total (ROLOS) cobre TODAS as variantes reais do
             relatorio: (1) cabecalho de grupo SEM codigo numerico de artigo
             ("SPINATO RIGATO LUREX - AZUL NEVOA"); (2) relatorio filtrado sem
@@ -824,7 +826,7 @@ class Handler(BaseHTTPRequestHandler):
         cfg    = carregar_config()
         # Parâmetros de alocação (podem vir do frontend ou usar defaults do config)
         cfg["margem_seguranca_enfesto_m"] = float(p.get("margem", cfg.get("margem_seguranca_enfesto_m", 0.10)))
-        cfg["folga_incerteza_pct"]        = float(p.get("folga_pct", cfg.get("folga_incerteza_pct", 0.03)))
+        cfg["folga_incerteza_pct"]        = float(p.get("folga_pct", cfg.get("folga_incerteza_pct", 0.01)))
         cfg["folga_incerteza_m"]          = float(p.get("folga_m",   cfg.get("folga_incerteza_m", 0.0)))
         cfg["ponta_minima_util_m"]        = float(p.get("ponta_min", cfg.get("ponta_minima_util_m", 0.5)))
         cfg["considerar_lote"]            = bool(p.get("considerar_lote", False))

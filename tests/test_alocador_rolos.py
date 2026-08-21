@@ -113,6 +113,16 @@ def test_comp_seguro_formula_percentual():
     assert abs(_comp_seguro(100.0, {"folga_incerteza_pct": 0.03}) - 97.0) < 0.001
 
 
+def test_comp_seguro_default_1_pct():
+    """Sem config, a folga de incerteza padrao e 1% (v2.14)."""
+    assert abs(_comp_seguro(100.0, {}) - 99.0) < 0.001
+
+
+def test_comp_seguro_folga_zero_confia_no_nominal():
+    """folga_incerteza_pct = 0 e valor valido: usa o nominal inteiro."""
+    assert abs(_comp_seguro(100.0, {"folga_incerteza_pct": 0.0}) - 100.0) < 0.001
+
+
 def test_comp_seguro_formula_fixo():
     """_comp_seguro com folga_incerteza_m deve retornar nominal - m."""
     assert abs(_comp_seguro(100.0, {"folga_incerteza_m": 2.0}) - 98.0) < 0.001
