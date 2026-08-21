@@ -5,7 +5,7 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pytest
-from engine.alocador_rolos import alocar_rolos, _comp_seguro
+from engine.alocador_rolos import alocar_rolos, _alocar_cor, _comp_seguro
 
 
 # ---------------------------------------------------------------------------
@@ -162,7 +162,8 @@ def test_ponta_refugo():
     plano = {"mapas": [{"id": 0, "composicao": {"P": 4}, "n_pecas": 4}],
              "camadas": {"PRETO": {0: 2}}, "consumo_peca": 1.0}  # cc=4.0
     # Rolo nominal 8.5m -> seguro = 8.5 * 0.97 = 8.245m.
-    # 2 camadas usam 2*4.0 + 0.10 (margem) = 8.10m; ponta = 8.245 - 8.10 = 0.145m < 0.5 -> refugo.
+    # 2 camadas usam 2*4.0 + 0.10 (margem) = 8.10m;
+    # ponta FISICA = 8.5 - 8.10 = 0.40m < 0.5 -> refugo.
     res = alocar_rolos(plano, {"PRETO": [8.5]}, dict(CONFIG_BASE))
     rolo = res["por_cor"]["PRETO"]["rolos"][0]
     assert rolo["ponta_classe"] == "refugo"
@@ -402,6 +403,110 @@ def test_export_alocacao_tem_sobras_e_enfestos():
         ws = [s for s in wb.sheetnames if s.startswith("Rolos")][0]
         textos = " ".join(str(c.value) for row in wb[ws].iter_rows()
                            for c in row if c.value is not None)
-    assert "Sobras por rolo" in textos
+    assert "Rolos utilizados e sobras" in textos
     assert "Mapa" in textos
     assert "Corte separado" not in textos
+
+
+# ── Ponta fisica, rolos usados e refinamento de menos rolos (v2.14) ─────────
+
+def test_ponta_fisica_e_nominal_menos_usado():
+    """A ponta reportada e nominal - usado: a folga de incerteza limita o
+    planejamento, mas nao e descontada da sobra que volta ao estoque."""
+    plano = {"mapas": [{"id": 0, "composicao": {"M": 6}, "n_pecas": 6}],
+             "camadas": {"AZUL": {0: 2}}, "consumo_peca": 1.0}   # camada 6m
+    cfg = {**CONFIG_BASE, "folga_incerteza_pct": 0.03,
+           "margem_seguranca_enfesto_m": 0.10}
+    res = alocar_rolos(plano, {"AZUL": [20.0]}, cfg)
+    rolo = res["por_cor"]["AZUL"]["rolos"][0]
+    assert rolo["usado_m"] == pytest.approx(12.10)          # 2x6m + margem
+    assert rolo["ponta_m"] == pytest.approx(20.0 - 12.10)   # fisica, sem a folga
+    assert rolo["seguro_m"] == pytest.approx(19.4)          # planejamento mantem folga
+
+
+def test_rolos_nao_usados_ficam_fora_da_lista_e_dos_kpis():
+    plano = {"mapas": [{"id": 0, "composicao": {"M": 6}, "n_pecas": 6}],
+             "camadas": {"AZUL": {0: 2}}, "consumo_peca": 1.0}
+    res = alocar_rolos(plano, {"AZUL": [20.0, 15.0, 8.0]}, dict(CONFIG_BASE))
+    cr = res["por_cor"]["AZUL"]
+    assert [r["rolo_indice"] for r in cr["rolos"]] == [1]
+    assert cr["n_rolos_utilizados"] == 1
+    assert cr["rolos_nao_utilizados"] == {"quantidade": 2, "total_nominal_m": 23.0}
+    # KPIs de sobra consideram SO os rolos usados
+    assert cr["ponta_estoque_total_m"] == cr["rolos"][0]["ponta_m"]
+    rg = res["resumo_geral"]
+    assert rg["rolos_utilizados_total"] == 1
+    assert rg["rolos_nao_utilizados_total"] == {"quantidade": 2,
+                                                "total_nominal_m": 23.0}
+
+
+def test_desempate_prefere_menos_rolos_abertos():
+    """Antes, o desempate por refugo podia abrir varios rolos pequenos em vez
+    de um rolo grande que cobre tudo. Menos rolos abertos vence o desempate.
+    Usa _refinar=False para pinar a CHAVE de desempate (sem o refinamento
+    mascarar uma regressao) e o fluxo completo por cima."""
+    cfg = {**CONFIG_BASE, "folga_incerteza_pct": 0.0,
+           "margem_seguranca_enfesto_m": 0.10, "ponta_minima_util_m": 0.5}
+    # rolo grande cobre tudo com refugo 0.45m; os pequenos cobririam com
+    # refugo zero, mas abrindo 2 rolos -- o rolo unico deve vencer.
+    cr = _alocar_cor({0: 2}, {0: 10.0}, [20.55, 10.62, 10.62], cfg,
+                     _refinar=False)
+    assert cr["camadas_em_deficit"] == {}
+    assert cr["n_rolos_utilizados"] == 1
+    assert cr["rolos"][0]["nominal_m"] == 20.55
+    plano = {"mapas": [{"id": 0, "composicao": {"M": 10}, "n_pecas": 10}],
+             "camadas": {"AZUL": {0: 2}}, "consumo_peca": 1.0}   # 2 camadas de 10m
+    res = alocar_rolos(plano, {"AZUL": [20.55, 10.62, 10.62]}, cfg)
+    assert res["por_cor"]["AZUL"]["n_rolos_utilizados"] == 1
+
+
+def test_deficit_convive_com_rolos_nao_utilizados():
+    """Com deficit, um rolo curto demais para qualquer camada continua fora de
+    rolos[] e conta como nao utilizado (segue inteiro no estoque)."""
+    plano = {"mapas": [{"id": 0, "composicao": {"M": 10}, "n_pecas": 10}],
+             "camadas": {"AZUL": {0: 2}}, "consumo_peca": 1.0}
+    cfg = {**CONFIG_BASE, "folga_incerteza_pct": 0.0,
+           "margem_seguranca_enfesto_m": 0.0}
+    res = alocar_rolos(plano, {"AZUL": [10.5, 3.0]}, cfg)
+    cr = res["por_cor"]["AZUL"]
+    assert cr["camadas_em_deficit"] == {0: 1}
+    assert cr["n_rolos_utilizados"] == 1
+    assert cr["rolos_nao_utilizados"] == {"quantidade": 1, "total_nominal_m": 3.0}
+    rg = res["resumo_geral"]
+    assert rg["rolos_utilizados_total"] == 1
+    assert rg["rolos_nao_utilizados_total"] == {"quantidade": 1,
+                                                "total_nominal_m": 3.0}
+
+
+def test_cor_com_rolos_sem_demanda_conta_e_alerta():
+    """Rolos informados para uma cor que nao esta no plano nao somem da
+    conciliacao: contam em rolos_nao_utilizados_total e geram alerta."""
+    plano = {"mapas": [{"id": 0, "composicao": {"M": 5}, "n_pecas": 5}],
+             "camadas": {"AZUL": {0: 2}}, "consumo_peca": 1.0}
+    res = alocar_rolos(plano, {"AZUL": [20.0], "VERDE": [50.0, 30.0]},
+                       dict(CONFIG_BASE))
+    rg = res["resumo_geral"]
+    assert rg["rolos_utilizados_total"] == 1
+    assert rg["rolos_nao_utilizados_total"] == {"quantidade": 2,
+                                                "total_nominal_m": 80.0}
+    assert any("VERDE" in a and "nao tem camadas" in a for a in rg["alertas"])
+    assert "VERDE" not in res["por_cor"]
+
+
+def test_menos_rolos_no_caso_real_op7015():
+    """Caso real CALCA DALIA OP 7015 (cor VALSA): o resultado antigo abria 8
+    rolos; 5 rolos grandes cobrem a mesma demanda sem deficit (desempate por
+    menos rolos + refinamento como rede de seguranca)."""
+    plano = {"mapas": [{"id": 1, "comp_camada_m": 9.29, "n_pecas": 1},
+                       {"id": 2, "comp_camada_m": 7.51, "n_pecas": 1},
+                       {"id": 3, "comp_camada_m": 7.51, "n_pecas": 1}],
+             "camadas": {"VALSA": {1: 9, 2: 11, 3: 25}}, "consumo_peca": 1.0}
+    rolos = {"VALSA": [41.33, 81.05, 72.26, 47.88, 61.06, 69.76, 78.7, 79.05,
+                       37.88, 85.8, 61.85, 78.57, 86.46, 61.29, 77.02, 20.0]}
+    cfg = {**CONFIG_BASE, "folga_incerteza_pct": 0.03,
+           "margem_seguranca_enfesto_m": 0.10, "ponta_minima_util_m": 0.5}
+    res = alocar_rolos(plano, rolos, cfg)
+    cr = res["por_cor"]["VALSA"]
+    assert cr["camadas_em_deficit"] == {}
+    assert cr["n_rolos_utilizados"] <= 5
+    assert cr["rolos_nao_utilizados"]["quantidade"] >= 11

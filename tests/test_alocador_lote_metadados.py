@@ -98,7 +98,7 @@ def test_considerar_lote_com_deficit_usa_todos():
                for a in r["resumo_geral"]["alertas"])
 
 
-def test_rolos_fora_do_subconjunto_aparecem_como_nao_usados():
+def test_rolos_fora_do_subconjunto_contam_como_nao_utilizados():
     rolos = {"AZUL": [
         _rolo(50.0, "1", "A"),
         _rolo(30.0, "2", "B"),
@@ -106,12 +106,29 @@ def test_rolos_fora_do_subconjunto_aparecem_como_nao_usados():
     r = alocar_rolos(PLANO, rolos, {**CONFIG, "considerar_lote": True})
     cr = r["por_cor"]["AZUL"]
     assert cr["lotes"]["utilizados"] == ["A"]
-    assert len(cr["rolos"]) == 2   # o rolo do lote B aparece, zerado
-    rolo_b = [x for x in cr["rolos"] if x["rolo_indice"] == 2][0]
-    assert rolo_b["usado_m"] == 0.0
-    assert rolo_b["rolo_id"] == "2"
+    # rolos[] lista APENAS os usados; o rolo do lote B vira "nao utilizado"
+    assert [x["rolo_indice"] for x in cr["rolos"]] == [1]
+    assert cr["n_rolos_utilizados"] == 1
+    assert cr["rolos_nao_utilizados"]["quantidade"] == 1
+    assert cr["rolos_nao_utilizados"]["total_nominal_m"] == 30.0
     # indices das fontes referenciam a numeracao ORIGINAL
     assert all(f["rolo_indice"] == 1 for e in cr["enfestos"] for f in e["fontes"])
+
+
+def test_nao_utilizados_soma_intocados_do_lote_e_excluidos():
+    """rolos_nao_utilizados compoe: rolos de lotes excluidos + rolos do lote
+    escolhido que o DP nao tocou (sem double counting)."""
+    rolos = {"AZUL": [
+        _rolo(50.0, "1", "A"),   # cobre a demanda sozinho
+        _rolo(5.0,  "2", "A"),   # mesmo lote, intocado pelo DP
+        _rolo(30.0, "3", "B"),   # lote excluido
+    ]}
+    r = alocar_rolos(PLANO, rolos, {**CONFIG, "considerar_lote": True})
+    cr = r["por_cor"]["AZUL"]
+    assert cr["lotes"]["utilizados"] == ["A"]
+    assert cr["n_rolos_utilizados"] == 1
+    assert cr["rolos_nao_utilizados"] == {"quantidade": 2,
+                                          "total_nominal_m": 35.0}
 
 
 def test_alerta_de_larguras_misturadas():

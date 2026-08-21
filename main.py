@@ -1,7 +1,16 @@
 #!/usr/bin/env python3
 """
-PCP Enfestos v2.13.1
+PCP Enfestos v2.14.0
 Changelog:
+  v2.14.0 - Alocacao de rolos: (1) Ponta FISICA -- a coluna Ponta passa a ser
+            nominal - usado (a folga de incerteza segue limitando o
+            planejamento contra o comp_seguro, mas nao e mais descontada da
+            sobra reportada); (2) a alocacao prefere abrir MENOS rolos
+            (desempate por numero de rolos + refinamento que tenta cobrir a
+            demanda com os k maiores rolos); (3) a tabela de sobras lista
+            APENAS os rolos utilizados -- os demais viram o contador
+            "rolos nao utilizados" (por cor e no resumo geral), inclusive
+            rolos de cores fora do plano (com alerta).
   v2.13.1 - Parser do Estoque Total (ROLOS) cobre TODAS as variantes reais do
             relatorio: (1) cabecalho de grupo SEM codigo numerico de artigo
             ("SPINATO RIGATO LUREX - AZUL NEVOA"); (2) relatorio filtrado sem
@@ -109,7 +118,7 @@ from urllib.parse import urlparse
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
-VERSION      = "2.13.1"
+VERSION      = "2.14.0"
 CORES_FILE        = os.path.join(BASE_DIR, "dados", "cores_salvas.json")
 PARAMS_FILE       = os.path.join(BASE_DIR, "dados", "parametros_salvos.json")
 PID_FILE          = os.path.join(BASE_DIR, "dados", "servidor.pid")

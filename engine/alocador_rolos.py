@@ -33,6 +33,10 @@ SUB-ENFESTO:
 PONTA DE ROLO:
   A sobra de tecido no final de um rolo apos esgotar todos os sub-enfestos possiveis.
   Comprimento insuficiente para mais uma camada do mapa atual.
+  REPORTADA de forma FISICA: ponta_m = comprimento nominal - tecido usado.
+  (O planejamento continua alocando contra o comp_seguro -- a folga de incerteza
+  limita quantas camadas cabem no rolo --, mas a folga NAO e tecido consumido:
+  se o nominal do ERP estiver certo, ela volta para o estoque junto com a ponta.)
   NAO E REFUGO -- e um subproduto reaproveitavel:
     - Pontas grandes (>= ponta_minima_util_m): reaproveitadas como CAMADA INTEIRA de
       outro enfesto (mapa mais curto) do mesmo plano; o que sobrar vira estoque.
@@ -205,15 +209,25 @@ def _alocar_cor_ordem(demanda, comp_camada_por_id, rolos_cor, config, crescente)
             "fontes": fontes_por_mapa[mid],
         })
 
-    # Resumo por rolo (estado final), na ordem original dos rolos.
+    # Resumo por rolo: APENAS os rolos efetivamente usados (com camadas), na
+    # ordem original. A ponta reportada e FISICA: nominal - usado. A folga de
+    # incerteza limita o planejamento (comp_seguro), mas nao e tecido consumido
+    # -- nao deve ser descontada da sobra que volta ao estoque.
+    usados_idx = {f["rolo_indice"] for fs in fontes_por_mapa.values() for f in fs}
     rolos_out, ponta_est, refugo_real, nom_total = [], 0.0, 0.0, 0.0
+    nao_usados_n, nao_usados_m = 0, 0.0
     for r in rolos:
-        ponta = round(max(0.0, r["restante_m"]), 4)
+        if r["rolo_indice"] not in usados_idx:
+            nao_usados_n += 1
+            nao_usados_m += r["nominal_m"]
+            continue
+        usado = round(r["seguro_m"] - max(0.0, r["restante_m"]), 4)
+        ponta = round(max(0.0, r["nominal_m"] - usado), 4)
         classe = "estoque" if ponta >= ponta_min else "refugo"
         rolos_out.append({
             "rolo_indice": r["rolo_indice"], "nominal_m": round(r["nominal_m"], 4),
             "seguro_m": round(r["seguro_m"], 4),
-            "usado_m": round(r["seguro_m"] - ponta, 4),
+            "usado_m": usado,
             "ponta_m": ponta, "ponta_classe": classe,
         })
         nom_total += r["nominal_m"]
@@ -235,7 +249,11 @@ def _alocar_cor_ordem(demanda, comp_camada_por_id, rolos_cor, config, crescente)
         "tecido_a_comprar_m": round(sum(e["tecido_a_comprar_m"] for e in enfestos), 3),
         "ponta_estoque_total_m": round(ponta_est, 3),
         "refugo_real_m": round(refugo_real, 3),
+        # % sobre o nominal dos rolos USADOS (rolos intactos nao entram).
         "refugo_percentual": round(100 * refugo_real / nom_total, 2) if nom_total > 0 else 0.0,
+        "n_rolos_utilizados": len(rolos_out),
+        "rolos_nao_utilizados": {"quantidade": nao_usados_n,
+                                 "total_nominal_m": round(nao_usados_m, 3)},
         # n_sub_enfestos = 1 por mapa coberto (NAO por pilha fisica) -- margem 1x/enfesto.
         "n_sub_enfestos": sum(1 for e in enfestos if e["camadas_cobertas"] > 0),
         "reaproveitamento": {"camadas_reaproveitadas": reap_camadas,
@@ -243,13 +261,14 @@ def _alocar_cor_ordem(demanda, comp_camada_por_id, rolos_cor, config, crescente)
     }
 
 
-def _alocar_cor(demanda, comp_camada_por_id, rolos_cor, config):
+def _alocar_cor(demanda, comp_camada_por_id, rolos_cor, config, _refinar=True):
     """Aloca o tecido de UMA cor pelo modelo enfesto-por-enfesto com atribuicao
     otima por rolo (mochila limitada em mm inteiros): camada inteira, sem emenda,
     margem 1x por (mapa,cor) na fonte primaria, sempre contra o comp_seguro.
     Processa os rolos nas DUAS ordens (decrescente e crescente de comprimento
-    seguro) e fica com a que resultar em MENOR compra; empate -> menor refugo,
-    depois menos fontes. Funcao pura."""
+    seguro) e fica com a que resultar em MENOR compra; empate -> MENOS rolos
+    abertos, depois menor refugo, depois menos fontes. Sem deficit, ainda tenta
+    reduzir o numero de rolos abertos (_refinar_menos_rolos). Funcao pura."""
     res = _alocar_cor_ordem(demanda, comp_camada_por_id, rolos_cor, config,
                             crescente=False)
     if len(rolos_cor) > 1:
@@ -257,7 +276,8 @@ def _alocar_cor(demanda, comp_camada_por_id, rolos_cor, config):
                                 crescente=True)
 
         def _chave(r):
-            return (r["tecido_a_comprar_m"], r["refugo_real_m"],
+            return (r["tecido_a_comprar_m"], r["n_rolos_utilizados"],
+                    r["refugo_real_m"],
                     sum(len(e["fontes"]) for e in r["enfestos"]))
 
         if _chave(alt) < _chave(res):
@@ -280,6 +300,54 @@ def _alocar_cor(demanda, comp_camada_por_id, rolos_cor, config):
         "compra_recomendada_m": round(compra, 3),
         "fragmentacao_m": round(max(0.0, compra - falta), 3),
     }
+
+    # Refinamento: sem deficit, tenta atender a mesma demanda abrindo MENOS
+    # rolos. So no nivel de cima (_refinar=False nas chamadas internas evita
+    # recursao subconjunto -> refinamento -> subconjunto).
+    if _refinar and not res["camadas_em_deficit"] and res["n_rolos_utilizados"] > 1:
+        res = _refinar_menos_rolos(demanda, comp_camada_por_id, rolos_cor,
+                                   config, res)
+    return res
+
+
+def _refinar_menos_rolos(demanda, comp_camada_por_id, rolos_cor, config, res):
+    """
+    Tenta cobrir a demanda (sem deficit) com MENOS rolos do que `res`, testando
+    os k MAIORES rolos (por comprimento seguro) para k crescente a partir do
+    piso de capacidade. Dominancia: se algum subconjunto de k rolos cobre a
+    demanda, os k maiores tambem cobrem (todo empacotamento continua valido
+    trocando cada rolo por um maior ou igual). O empacotador por rolo continua
+    sendo o greedy das duas ordens -- se ele nao achar cobertura com k rolos,
+    fica o resultado original (nunca piora). Devolve `res` intacto se nenhum
+    k menor cobrir.
+    """
+    # Piso de consumo para cobertura total: camadas + margem de faca (paga
+    # exatamente 1x por mapa demandado) -- deixa o kmin justo, sem testar um
+    # k que nunca caberia.
+    margem = float(config.get("margem_seguranca_enfesto_m", 0.10))
+    necessario = sum(int(demanda[m]) * float(comp_camada_por_id.get(m, 0.0))
+                     for m in demanda)
+    necessario += margem * sum(
+        1 for m in demanda
+        if int(demanda[m]) > 0 and float(comp_camada_por_id.get(m, 0.0)) > 0)
+    ordem_idx = sorted(range(len(rolos_cor)),
+                       key=lambda i: (-_comp_seguro(rolos_cor[i], config), i))
+    metas = [{"comprimento_m": float(n), "rolo_id": None, "lote": None,
+              "largura_m": None, "cor_fornecedor": None} for n in rolos_cor]
+    acum, kmin = 0.0, None
+    for j, i in enumerate(ordem_idx, 1):
+        acum += _comp_seguro(rolos_cor[i], config)
+        if acum >= necessario - 1e-9:
+            kmin = j
+            break
+    if kmin is None:
+        return res
+    for k in range(kmin, res["n_rolos_utilizados"]):
+        r2 = _alocar_cor_subconjunto(demanda, comp_camada_por_id, metas,
+                                     sorted(ordem_idx[:k]), config,
+                                     _refinar=False)
+        if not r2["camadas_em_deficit"]:
+            return r2
     return res
 
 
@@ -354,53 +422,34 @@ def _anexar_metadados(cr, metas):
     return cr
 
 
-def _alocar_cor_subconjunto(demanda, comp_camada_por_id, metas, indices, config):
+def _alocar_cor_subconjunto(demanda, comp_camada_por_id, metas, indices, config,
+                            _refinar=True):
     """
     Roda _alocar_cor usando apenas os rolos de `indices` (0-based, ordenados) e
     devolve o resultado com rolo_indice remapeado para a numeracao ORIGINAL da
-    lista completa. Rolos fora do subconjunto entram como nao usados (ponta =
-    comprimento seguro inteiro), igual a um rolo que o DP nao tocou.
+    lista completa. Rolos fora do subconjunto contam como NAO utilizados (mesma
+    visao dos rolos que o DP nao tocou: ficam fora de rolos[] e entram no
+    contador rolos_nao_utilizados).
     """
-    ponta_min = float(config.get("ponta_minima_util_m", 0.5))
-    sub_lens  = [metas[i]["comprimento_m"] for i in indices]
-    res = _alocar_cor(demanda, comp_camada_por_id, sub_lens, config)
+    sub_lens = [metas[i]["comprimento_m"] for i in indices]
+    res = _alocar_cor(demanda, comp_camada_por_id, sub_lens, config,
+                      _refinar=_refinar)
 
     mapa = {j + 1: indices[j] + 1 for j in range(len(indices))}
     for e in res["enfestos"]:
         for f in e["fontes"]:
             f["rolo_indice"] = mapa[f["rolo_indice"]]
-    rolos_map = {}
     for r in res["rolos"]:
         r["rolo_indice"] = mapa[r["rolo_indice"]]
-        rolos_map[r["rolo_indice"]] = r
 
-    completos, ponta_extra, refugo_extra, nom_total = [], 0.0, 0.0, 0.0
-    for i, m in enumerate(metas):
-        idx = i + 1
-        nom_total += m["comprimento_m"]
-        if idx in rolos_map:
-            completos.append(rolos_map[idx])
-            continue
-        seguro = round(_comp_seguro(m["comprimento_m"], config), 6)
-        ponta  = round(seguro, 4)
-        classe = "estoque" if ponta >= ponta_min else "refugo"
-        completos.append({
-            "rolo_indice": idx, "nominal_m": round(m["comprimento_m"], 4),
-            "seguro_m": round(seguro, 4), "usado_m": 0.0,
-            "ponta_m": ponta, "ponta_classe": classe,
-        })
-        if classe == "estoque":
-            ponta_extra += ponta
-        else:
-            refugo_extra += ponta
-    res["rolos"] = completos
+    # Rolos fora do subconjunto = nao utilizados na visao da lista completa.
+    dentro = set(indices)
+    fora_m = sum(m["comprimento_m"] for i, m in enumerate(metas)
+                 if i not in dentro)
+    ru = res["rolos_nao_utilizados"]
+    ru["quantidade"] += len(metas) - len(indices)
+    ru["total_nominal_m"] = round(ru["total_nominal_m"] + fora_m, 3)
 
-    # Totais precisam refletir a lista completa (rolos excluidos = nao usados),
-    # em paridade com _alocar_cor sobre a lista cheia.
-    res["ponta_estoque_total_m"] = round(res["ponta_estoque_total_m"] + ponta_extra, 3)
-    res["refugo_real_m"]         = round(res["refugo_real_m"] + refugo_extra, 3)
-    res["refugo_percentual"]     = (round(100 * res["refugo_real_m"] / nom_total, 2)
-                                    if nom_total > 0 else 0.0)
     # resumo_compra: disponibilidade deve considerar TODOS os rolos da cor
     disp_nom = sum(m["comprimento_m"] for m in metas)
     disp_seg = sum(_comp_seguro(m["comprimento_m"], config) for m in metas)
@@ -429,9 +478,10 @@ def _rank_candidato_lote(cr, metas):
     """
     Chave de ordenacao entre candidatos VIAVEIS (sem deficit) do modo lote:
       1. menos larguras distintas entre rolos usados (juntar largura);
-      2. menor refugo real dos rolos usados;
-      3. menor soma de pontas dos rolos usados (menos sobras de pontas);
-      4. menos fontes (menos fragmentacao operacional).
+      2. menos rolos abertos;
+      3. menor refugo real dos rolos usados;
+      4. menor soma de pontas dos rolos usados (menos sobras de pontas);
+      5. menos fontes (menos fragmentacao operacional).
     """
     usados = _uso_por_rolo(cr)
     largs  = set()
@@ -447,7 +497,7 @@ def _rank_candidato_lote(cr, metas):
         else:
             ponta += r["ponta_m"]
     n_fontes = sum(len(e.get("fontes", [])) for e in cr.get("enfestos", []))
-    return (len(largs), round(refugo, 3), round(ponta, 3), n_fontes)
+    return (len(largs), len(usados), round(refugo, 3), round(ponta, 3), n_fontes)
 
 
 _MAX_COMBOS_LOTE = 400   # teto de subconjuntos avaliados por nivel k
@@ -575,13 +625,17 @@ def alocar_rolos(plano, rolos, config):
                                               "primaria","reaproveitada"}]}],
                     "rolos": [{"rolo_indice","nominal_m","seguro_m","usado_m",
                                "ponta_m","ponta_classe"}],
+                               # APENAS rolos usados; ponta_m = nominal - usado
+                    "n_rolos_utilizados":  int,
+                    "rolos_nao_utilizados": {"quantidade": int,
+                                             "total_nominal_m": float},
                     "camadas_alocadas":    {mapa_id: n},
                     "camadas_em_deficit":  {mapa_id: n},
                     "tecido_usado_m":      float,
                     "tecido_a_comprar_m":  float,
                     "ponta_estoque_total_m": float,
                     "refugo_real_m":       float,
-                    "refugo_percentual":   float,   # % sobre comprimento nominal total
+                    "refugo_percentual":   float,   # % sobre o nominal dos rolos USADOS
                     "n_sub_enfestos":      int,
                     "reaproveitamento": {"camadas_reaproveitadas": int,
                                          "tecido_economizado_m": float},
@@ -593,6 +647,8 @@ def alocar_rolos(plano, rolos, config):
             "resumo_geral": {
                 "tecido_usado_total_m", "ponta_estoque_total_m",
                 "refugo_real_total_m", "refugo_percentual_medio",
+                "rolos_utilizados_total",
+                "rolos_nao_utilizados_total",  # {"quantidade","total_nominal_m"}
                 "n_sub_enfestos_total", "cores_com_deficit",
                 "camadas_reaproveitadas_total", "tecido_economizado_total_m",
                 "sobras_consolidado",      # por cor: {ponta_estoque_m, refugo_m,
@@ -633,14 +689,27 @@ def alocar_rolos(plano, rolos, config):
 
     todas_cores = sorted(set(list(camadas_plano.keys()) + list(rolos.keys())))
     considerar_lote = bool(config.get("considerar_lote", False))
+    # Rolos de cores que nao estao no plano: nao entram na alocacao, mas
+    # continuam inteiros em estoque -- precisam aparecer na conciliacao.
+    fora_plano_n, fora_plano_m = 0, 0.0
 
     for cor in todas_cores:
         demanda   = {int(k): int(v) for k, v in camadas_plano.get(cor, {}).items() if int(v) > 0}
         metas     = _normalizar_rolos(rolos.get(cor))
         rolos_cor = [m["comprimento_m"] for m in metas]
 
-        # Cor sem demanda real -> ignora
+        # Cor sem demanda real -> nada a alocar; os rolos informados contam
+        # como nao utilizados (nunca descartar dados em silencio).
         if not demanda:
+            if metas:
+                tot = sum(m["comprimento_m"] for m in metas)
+                fora_plano_n += len(metas)
+                fora_plano_m += tot
+                alertas.append(
+                    f"{cor}: {len(metas)} rolo(s) informado(s) ({round(tot, 1)}m), "
+                    f"mas o plano nao tem camadas dessa cor; "
+                    f"permanecem inteiros em estoque."
+                )
             continue
 
         # Ramo: cor sem rolos -> deficit total (mantem alertas existentes).
@@ -731,7 +800,8 @@ def alocar_rolos(plano, rolos, config):
         acc["refugo_real_total_m"]    += cr["refugo_real_m"]
         acc["n_sub_enfestos_total"]   += cr["n_sub_enfestos"]
 
-    # Totalizadores globais
+    # Totalizadores globais (nominal apenas dos rolos USADOS -- rolos[] ja vem
+    # filtrado por cor; rolos intactos entram em rolos_nao_utilizados_total).
     nom_total_geral = sum(r["nominal_m"]
                           for res in resultado_por_cor.values() for r in res["rolos"])
     refugo_medio = (round(100 * acc["refugo_real_total_m"] / nom_total_geral, 2)
@@ -743,6 +813,16 @@ def alocar_rolos(plano, rolos, config):
         "ponta_estoque_total_m"    : round(acc["ponta_estoque_total_m"], 3),
         "refugo_real_total_m"      : round(acc["refugo_real_total_m"], 3),
         "refugo_percentual_medio"  : refugo_medio,
+        "rolos_utilizados_total"   : sum(res["n_rolos_utilizados"]
+                                         for res in resultado_por_cor.values()),
+        "rolos_nao_utilizados_total": {
+            "quantidade": fora_plano_n + sum(
+                res["rolos_nao_utilizados"]["quantidade"]
+                for res in resultado_por_cor.values()),
+            "total_nominal_m": round(fora_plano_m + sum(
+                res["rolos_nao_utilizados"]["total_nominal_m"]
+                for res in resultado_por_cor.values()), 3),
+        },
         "n_sub_enfestos_total"     : acc["n_sub_enfestos_total"],
         "cores_com_deficit"        : sorted(set(acc["cores_com_deficit"])),
         "camadas_reaproveitadas_total": sum(

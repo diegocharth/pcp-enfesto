@@ -1162,11 +1162,16 @@ def _aba_resumo_alocacao(wb, resultado, referencia, params=None):
     r += 1
 
     resumo = resultado.get("resumo_geral", {})
+    nao_usados = resumo.get("rolos_nao_utilizados_total") or {}
     campos = [
         ("Tecido usado total (m)",       resumo.get("tecido_usado_total_m", 0)),
         ("Ponta reaproveitavel total (m)",resumo.get("ponta_estoque_total_m", 0)),
         ("Refugo real total (m)",         resumo.get("refugo_real_total_m", 0)),
-        ("Refugo (% sobre nominal)",      resumo.get("refugo_percentual_medio", 0)),
+        ("Refugo (% sobre rolos usados)", resumo.get("refugo_percentual_medio", 0)),
+        ("Rolos utilizados",              resumo.get("rolos_utilizados_total", "—")),
+        ("Rolos nao utilizados",          f"{nao_usados.get('quantidade', 0)} "
+                                          f"({nao_usados.get('total_nominal_m', 0)}m)"
+                                          if nao_usados else "—"),
         ("Total de sub-enfestos",         resumo.get("n_sub_enfestos_total", 0)),
         ("Camadas reaproveitadas",        resumo.get("camadas_reaproveitadas_total", 0)),
         ("Tecido economizado (m)",        resumo.get("tecido_economizado_total_m", 0)),
@@ -1257,11 +1262,13 @@ def _aba_cor_alocacao(wb, cor, cor_res):
 
     # KPIs da cor
     reapro = cor_res.get("reaproveitamento") or {}
+    nao_usados = cor_res.get("rolos_nao_utilizados") or {}
     kpis = [
         ("Tecido usado (m)",         cor_res.get("tecido_usado_m", 0)),
         ("Ponta estoque (m)",         cor_res.get("ponta_estoque_total_m", 0)),
         ("Refugo real (m)",           cor_res.get("refugo_real_m", 0)),
         ("Refugo (%)",                cor_res.get("refugo_percentual", 0)),
+        ("Rolos utilizados",          cor_res.get("n_rolos_utilizados", "—")),
         ("Enfestos cortados",         cor_res.get("n_sub_enfestos", 0)),
         ("Reaproveitado (camadas)",   reapro.get("camadas_reaproveitadas", 0)),
         ("Tecido a comprar (m)",      cor_res.get("tecido_a_comprar_m", 0)),
@@ -1342,12 +1349,13 @@ def _aba_cor_alocacao(wb, cor, cor_res):
 
     r += 1
 
-    # ── Rolos utilizados e sobras ────────────────────────────────────────────
+    # ── Rolos utilizados e sobras (rolos[] ja vem so com os usados) ─────────
     rolos = cor_res.get("rolos", [])
     if rolos:
         tem_meta = any(rl.get("rolo_id") or rl.get("lote") or rl.get("largura_m")
                        or rl.get("cor_fornecedor") for rl in rolos)
-        _cel(ws, r, 1, "Sobras por rolo", negrito=True, fundo=C_AZUL_MED, cor_txt=C_BRANCO)
+        _cel(ws, r, 1, "Rolos utilizados e sobras (ponta = nominal - usado)",
+             negrito=True, fundo=C_AZUL_MED, cor_txt=C_BRANCO)
         ws.merge_cells(f"A{r}:I{r}")
         r += 1
         if tem_meta:
@@ -1384,6 +1392,16 @@ def _aba_cor_alocacao(wb, cor, cor_res):
                 _cel(ws, r, col, v, fundo=fundo,
                      alinha="center" if col in (1, len(vals)) else "right")
             r += 1
+
+    # Rolos disponibilizados mas nao usados: ficam inteiros no estoque.
+    nu = cor_res.get("rolos_nao_utilizados") or {}
+    if nu.get("quantidade", 0) > 0:
+        _cel(ws, r, 1,
+             f"Rolos nao utilizados: {nu['quantidade']} "
+             f"({nu.get('total_nominal_m', 0)}m) — permanecem inteiros em estoque",
+             fundo=C_CINZA_HDR)
+        ws.merge_cells(f"A{r}:I{r}")
+        r += 1
 
 
 def exportar_alocacao(resultado, referencia, pasta_saida, params=None):

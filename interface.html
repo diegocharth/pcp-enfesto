@@ -2352,18 +2352,20 @@ function _sugestoesAlocacao(data) {
         msg: 'Faltam ' + comprar.toFixed(1) + 'm de tecido. '
            + 'Adicione um rolo de pelo menos ' + Math.ceil(comprar + 2) + 'm para cobrir o deficit.'});
     }
-    (cr.rolos || []).forEach(function(r, ri) {
+    (cr.rolos || []).forEach(function(r) {
       var ponta = parseFloat(r.ponta_m) || 0;
       var nominal = parseFloat(r.nominal_m) || 0;
       if (r.ponta_classe === 'estoque' && ponta > 0 && nominal > 0 && ponta / nominal > 0.08) {
-        var ideal = parseFloat((nominal - ponta).toFixed(1));
+        // rolo ideal: o menor cujo comp seguro cobre o que foi usado
+        // (usado / (seguro/nominal)); fallback antigo se seguro nao vier.
+        var usado = parseFloat(r.usado_m) || 0;
+        var seguro = parseFloat(r.seguro_m) || 0;
+        var ideal = (seguro > 0 && usado > 0)
+                  ? parseFloat((usado * nominal / seguro).toFixed(1))
+                  : parseFloat((nominal - ponta).toFixed(1));
         sugs.push({tipo:'otimizar', cor:cor,
-          msg: 'Rolo ' + (ri+1) + ' (' + nominal + 'm) sobrou ' + ponta.toFixed(1) + 'm (' +
+          msg: 'Rolo ' + (r.rolo_id || r.rolo_indice) + ' (' + nominal + 'm) sobrou ' + ponta.toFixed(1) + 'm (' +
                Math.round(ponta/nominal*100) + '%). Trocar por um rolo de ~' + ideal + 'm reduziria a ponta.'});
-      }
-      if ((parseFloat(r.usado_m)||0) === 0) {
-        sugs.push({tipo:'excesso', cor:cor,
-          msg: 'Rolo ' + (ri+1) + ' (' + nominal + 'm) nao foi utilizado. Pode ser retirado do plano.'});
       }
     });
   });
@@ -2396,23 +2398,33 @@ function _rotuloRoloMeta(rl, idx) {
 
 function _htmlSobrasPorRolo(cr) {
   var rolos = cr.rolos || [];
-  if (!rolos.length) return '';
-  var temMeta = rolos.some(function(s){ return s.rolo_id || s.lote || s.largura_m || s.cor_fornecedor; });
-  var h = '<div style="margin-top:6px;overflow-x:auto"><b>Sobras por rolo</b>'
-        + '<table style="font-size:12px;width:100%"><tr><th>Rolo</th>'
-        + (temMeta ? '<th>N. Rolo</th><th>Lote</th><th>Larg</th><th>Cor fornecedor</th>' : '')
-        + '<th>Nominal</th><th>Usado</th><th>Ponta</th><th>Classe</th></tr>';
-  rolos.forEach(function(s){
-    var cor = s.ponta_classe === 'estoque' ? 'green' : '#b00';
-    h += '<tr><td>rolo ' + s.rolo_indice + '</td>'
-       + (temMeta ? '<td>' + (s.rolo_id || '-') + '</td><td>' + (s.lote || '-') + '</td>'
-                  + '<td>' + (s.largura_m ? s.largura_m + 'm' : '-') + '</td>'
-                  + '<td>' + (s.cor_fornecedor || '-') + '</td>' : '')
-       + '<td>' + s.nominal_m + 'm</td><td>' + s.usado_m + 'm</td>'
-       + '<td style="color:' + cor + '">' + s.ponta_m + 'm</td>'
-       + '<td>' + s.ponta_classe + '</td></tr>';
-  });
-  return h + '</table></div>';
+  var nu = cr.rolos_nao_utilizados || {};
+  var h = '';
+  if (rolos.length) {
+    var temMeta = rolos.some(function(s){ return s.rolo_id || s.lote || s.largura_m || s.cor_fornecedor; });
+    h += '<div style="margin-top:6px;overflow-x:auto"><b>Rolos utilizados e sobras</b>'
+       + ' <span style="color:var(--tx2);font-weight:400">(ponta = nominal - usado)</span>'
+       + '<table style="font-size:12px;width:100%"><tr><th>Rolo</th>'
+       + (temMeta ? '<th>N. Rolo</th><th>Lote</th><th>Larg</th><th>Cor fornecedor</th>' : '')
+       + '<th>Nominal</th><th>Usado</th><th>Ponta</th><th>Classe</th></tr>';
+    rolos.forEach(function(s){
+      var cor = s.ponta_classe === 'estoque' ? 'green' : '#b00';
+      h += '<tr><td>rolo ' + s.rolo_indice + '</td>'
+         + (temMeta ? '<td>' + (s.rolo_id || '-') + '</td><td>' + (s.lote || '-') + '</td>'
+                    + '<td>' + (s.largura_m ? s.largura_m + 'm' : '-') + '</td>'
+                    + '<td>' + (s.cor_fornecedor || '-') + '</td>' : '')
+         + '<td>' + s.nominal_m + 'm</td><td>' + s.usado_m + 'm</td>'
+         + '<td style="color:' + cor + '">' + s.ponta_m + 'm</td>'
+         + '<td>' + s.ponta_classe + '</td></tr>';
+    });
+    h += '</table></div>';
+  }
+  if ((nu.quantidade || 0) > 0) {
+    h += '<div style="font-size:11px;color:var(--tx2);margin-top:2px">'
+       + nu.quantidade + ' rolo(s) nao utilizado(s) ('
+       + (+(nu.total_nominal_m || 0)).toFixed(1) + 'm) permanecem inteiros em estoque</div>';
+  }
+  return h;
 }
 
 // v2.13: linha-resumo de lotes e larguras usados por cor.
@@ -2451,6 +2463,10 @@ function _renderResultadoAlocacao(data) {
   var refugo = +(res.refugo_real_total_m||0);
   html += _kpiAloc('Refugo real', refugo.toFixed(1)+'m ('+(res.refugo_percentual_medio||0)+'%)', refugo>0?'wn':'ok');
   html += '</div><div class="g3" style="margin-bottom:10px">';
+  var rusados = res.rolos_utilizados_total;
+  var rnu = (res.rolos_nao_utilizados_total||{}).quantidade||0;
+  html += _kpiAloc('Rolos utilizados', (rusados!=null?rusados:'-')
+        + (rnu>0 ? ' (+' + rnu + ' intacto(s))' : ''));
   html += _kpiAloc('Enfestos cortados', res.n_sub_enfestos_total||0);
   var reapCam = res.camadas_reaproveitadas_total||0;
   html += _kpiAloc('Reaproveitado', reapCam+' camada(s)', reapCam>0?'ok':'');
@@ -2487,7 +2503,8 @@ function _renderResultadoAlocacao(data) {
     function _rotRolo(idx){ return _rotuloRoloMeta(metaPorId[idx], idx); }
     html += '<details style="margin-bottom:6px">';
     html += '<summary style="cursor:pointer;font-weight:600;padding:5px 8px;background:var(--sf2);border-radius:var(--r)">';
-    html += cor+' &mdash; '+(cr.n_sub_enfestos||0)+' sub-enfesto(s), refugo '+(cr.refugo_percentual||0)+'%';
+    html += cor+' &mdash; '+(cr.n_rolos_utilizados!=null?cr.n_rolos_utilizados+' rolo(s), ':'')
+          +(cr.n_sub_enfestos||0)+' sub-enfesto(s), refugo '+(cr.refugo_percentual||0)+'%';
     var rcc = cr.resumo_compra || null;
     if (rcc && (+rcc.compra_recomendada_m||0) > 0)
       html += ' <span style="color:var(--er)">&#9888; comprar '+(+rcc.compra_recomendada_m).toFixed(1)
@@ -2536,9 +2553,12 @@ function _htmlImpressaoAlocacao(d, ref) {
      + '.cor{page-break-inside:avoid}.def{color:#b00}.ok{color:#070}'
      + '@media print{button{display:none}}</style></head><body>';
   h += '<h1>Alocacao de Rolos &mdash; ' + ref + '</h1>';
+  var rnuT = res.rolos_nao_utilizados_total || {};
   h += '<div>Tecido usado: ' + (+(res.tecido_usado_total_m||0)).toFixed(1) + 'm | '
      + 'Ponta estoque: ' + (+(res.ponta_estoque_total_m||0)).toFixed(1) + 'm | '
      + 'Refugo: ' + (+(res.refugo_real_total_m||0)).toFixed(1) + 'm | '
+     + 'Rolos utilizados: ' + (res.rolos_utilizados_total!=null?res.rolos_utilizados_total:'-')
+     + ((rnuT.quantidade||0)>0 ? ' (+' + rnuT.quantidade + ' nao utilizado(s))' : '') + ' | '
      + 'Sub-enfestos: ' + (res.n_sub_enfestos_total||0) + '</div>';
 
   cores.forEach(function(cor) {
@@ -2575,16 +2595,22 @@ function _htmlImpressaoAlocacao(d, ref) {
     h += '</div>';
   });
 
-  h += '<h2>Sobras totais por rolo</h2><table><tr><th>Cor</th><th>Rolo</th><th>N. Rolo</th><th>Lote</th><th>Largura (m)</th><th>Cor fornecedor</th><th>Nominal (m)</th><th>Ponta (m)</th><th>Classe</th></tr>';
+  h += '<h2>Rolos utilizados e sobras (ponta = nominal - usado)</h2>'
+     + '<table><tr><th>Cor</th><th>Rolo</th><th>N. Rolo</th><th>Lote</th><th>Largura (m)</th><th>Cor fornecedor</th><th>Nominal (m)</th><th>Usado (m)</th><th>Ponta (m)</th><th>Classe</th></tr>';
   cores.forEach(function(cor) {
     (d.por_cor[cor].rolos||[]).forEach(function(s){
       h += '<tr><td>' + cor + '</td><td>rolo ' + s.rolo_indice + '</td>'
          + '<td>' + (s.rolo_id || '-') + '</td><td>' + (s.lote || '-') + '</td>'
          + '<td>' + (s.largura_m || '-') + '</td><td>' + (s.cor_fornecedor || '-') + '</td>'
-         + '<td>' + s.nominal_m + '</td><td>' + s.ponta_m + '</td><td>' + s.ponta_classe + '</td></tr>';
+         + '<td>' + s.nominal_m + '</td><td>' + s.usado_m + '</td><td>' + s.ponta_m + '</td><td>' + s.ponta_classe + '</td></tr>';
     });
   });
-  h += '</table></body></html>';
+  h += '</table>';
+  if ((rnuT.quantidade||0) > 0) {
+    h += '<div>' + rnuT.quantidade + ' rolo(s) nao utilizado(s) ('
+       + (+(rnuT.total_nominal_m||0)).toFixed(1) + 'm) permanecem inteiros em estoque.</div>';
+  }
+  h += '</body></html>';
   return h;
 }
 

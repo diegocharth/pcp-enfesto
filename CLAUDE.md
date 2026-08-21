@@ -28,7 +28,7 @@ Roda como servidor Python local na porta 5050. Interface HTML no navegador. Sem 
 | **Margem de faca** | Folga nas extremidades de cada sub-enfesto (cabeça + cauda). Por sub-enfesto, não por camada. |
 | **Comp_seguro** | `nominal × (1 - folga_incerteza_pct)` — comprimento seguro de um rolo para alocar. |
 | **Emenda (PROIBIDO)** | Camada que cruza dois rolos — inutiliza a camada. O alocador nunca permite emenda. |
-| **Ponta de rolo** | Sobra ao final de um rolo. Se ≥ `ponta_minima_util_m`: estoque. Se menor: refugo. |
+| **Ponta de rolo** | Sobra FÍSICA ao final de um rolo usado: `nominal − usado` (a folga de incerteza limita o planejamento, mas não é descontada da sobra). Se ≥ `ponta_minima_util_m`: estoque. Se menor: refugo. `rolos[]` do alocador lista só os rolos usados; os demais entram em `rolos_nao_utilizados`. |
 
 ---
 
