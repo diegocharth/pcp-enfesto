@@ -1074,6 +1074,9 @@ async function calcular(){
   // nao so depois que o novo calculo terminar (senao a alocacao velha fica visivel
   // e clicavel durante os minutos que o solver leva pra rodar).
   resultado=null; window._resultadoMulti=null;
+  // O agrupamento multi-ref anterior tambem deixa de valer: senao "Exportar
+  // Planilha" de um calculo de 1 referencia baixava o agrupamento antigo.
+  window._multiGrupoValidos=null; window._dadoCombinado=null;
   _esconderResultadoAlocacao();
   // O plano importado so e descartado quando um resultado NOVO aterrissa
   // (se o calculo falhar ou for cancelado, o plano importado continua valendo).
@@ -1489,6 +1492,7 @@ function _setEtapa(id, texto, status) {
 
 // ── Renderizar resultado ──────────────────────────────────────────────────────
 function renderResultado(data){
+  window._planoObsoleto=false;        // resultado novo: volta a valer para a alocacao
   document.getElementById('rb').style.display='block';
   _clearStaleCalculo();
   // Resultado novo: volta para a Opcao 1 e descarta comprimentos do Audaces
@@ -1555,6 +1559,7 @@ function _renderRefCard(r, ri, labelExtra){
 }
 
 function renderResultadoComComparacao(dadoCombinado, dadosSep, totalSep){
+  window._planoObsoleto=false;        // resultado novo: volta a valer para a alocacao
   _planoImportado=null;   // resultado novo assume o lugar do plano importado
   window._resultadoMulti = dadosSep;
   window._dadoCombinado  = dadoCombinado;
@@ -1659,6 +1664,7 @@ async function exportarRef(ri){
 }
 
 function renderResultadoGrupos(validos){
+  window._planoObsoleto=false;        // resultado novo: volta a valer para a alocacao
   window._multiGrupoValidos = validos;
   window._opGrupo = {};               // resultado novo: Opcao 1 em todos os grupos
   window._compRealAudaces = {};       // comprimentos do Audaces eram de outro plano
@@ -1751,7 +1757,8 @@ async function exportarMultiref(data){
 }
 
 async function exportarTodos(){
-  if(window._multiGrupoValidos){
+  // Agrupamento multi-ref so se o resultado ATUAL for multi-ref.
+  if(window._resultadoMulti && window._multiGrupoValidos){
     const best=window._multiGrupoValidos[0];
     // Uma unica chamada: o servidor gera as planilhas de TODAS as partes e devolve
     // um unico arquivo (.zip se houver mais de uma). Evita o navegador descartar
@@ -2003,6 +2010,10 @@ function _clearStaleCalculo(){ var b=document.getElementById('rb-stale'); if(b) 
 function _clearStaleAlocacao(){ var b=document.getElementById('aloc-stale'); if(b) b.style.display='none'; }
 
 function _esconderResultadoPlano(){
+  // Grade ou parametros mudaram: o plano calculado deixa de valer para a
+  // alocacao (antes a tela o escondia, mas a alocacao seguia usando-o).
+  window._planoObsoleto=true;
+  try{ _renderPlanoAlocacaoInfo(); }catch(e){}
   var rb=document.getElementById('rb');
   if(rb && rb.style.display!=='none'){ rb.style.display='none';
     var s=document.getElementById('rb-stale'); if(s) s.style.display='block'; }
@@ -2049,6 +2060,7 @@ function limpar(){
   document.getElementById('info-refs').textContent='';
   resultado=null;
   window._resultadoMulti=null;
+  window._multiGrupoValidos=null; window._dadoCombinado=null; window._planoObsoleto=false;
   // Limpar seção de rolos
   _rolosPorCor={};
   _rolosImportados={};
@@ -2318,7 +2330,12 @@ async function iniciarAlocacao() {
   if (!Object.keys(rolos).length) { st.textContent = 'Informe os rolos por cor antes de alocar.'; return; }
 
   var plano = _montarPlanoParaAlocacao();
-  if (!plano) { st.textContent = 'Calcule um plano de corte primeiro (ou importe um plano salvo).'; return; }
+  if (!plano) {
+    st.textContent = window._planoObsoleto
+      ? 'O plano de corte ficou desatualizado (grade ou parametros mudaram): recalcule antes de alocar.'
+      : 'Calcule um plano de corte primeiro (ou importe um plano salvo).';
+    return;
+  }
 
   var body = {
     plano: plano,
@@ -2395,6 +2412,8 @@ function _montarPlanoParaAlocacao() {
     });
     return {mapas: mapas2, camadas: pl.camadas, consumo_peca: pl.consumo_peca || 1.0645};
   }
+  // Plano calculado desatualizado (grade/parametros mudaram depois do calculo).
+  if (window._planoObsoleto) return null;
   // Constroi UM plano unico para a alocacao, agregando TODOS os grupos da
   // particao (single-ref e combinados). Cada mapa recebe comp_camada_m explicito:
   // - single-ref: n_pecas x consumo da referencia;
@@ -2815,6 +2834,10 @@ function _renderPlanoAlocacaoInfo() {
       + ' (' + ((pl.mapas || []).length) + ' mapa(s), ' + Object.keys(pl.camadas || {}).length + ' cor(es)'
       + (_planoImportado.criado_em ? ', calculado em ' + _planoImportado.criado_em : '') + ')';
     if (btn) btn.style.display = '';
+  } else if (window._planoObsoleto && ((typeof resultado !== 'undefined' && resultado) || window._resultadoMulti)) {
+    el.textContent = 'o plano calculado acima ficou desatualizado (grade ou parametros mudaram): '
+      + 'recalcule antes de alocar';
+    if (btn) btn.style.display = 'none';
   } else if (_montarPlanoParaAlocacao()) {
     el.textContent = 'usando o plano calculado acima (' + _getReferencia() + ')'
       + (window._resultadoMulti ? ' - multi-ref: vale a op\u00e7\u00e3o aberta em cada grupo' + _sufixoOpcao(false)
@@ -2993,9 +3016,16 @@ function importarRolosPdf(input) {
           Object.keys(res.nao_mapeados || {}).forEach(function(cf) {
             pendencias[cf] = (pendencias[cf] || []).concat(res.nao_mapeados[cf]);
           });
+          var naoLidas = [];
           (res.linhas_nao_parseadas || []).forEach(function(l) {
             if (String(l).indexOf('AVISO') === 0) resumo.avisos.push(f.name + ': ' + l);
+            else naoLidas.push(String(l).trim());
           });
+          // Linhas que o leitor nao entendeu ficam FORA da alocacao: avisar
+          // sempre (antes sumiam em silencio). Mostra as 3 primeiras.
+          if (naoLidas.length) resumo.avisos.push(f.name + ': ' + naoLidas.length
+            + ' linha(s) do PDF nao entendida(s) ficaram de fora - confira: "'
+            + naoLidas.slice(0, 3).join('" / "') + '"' + (naoLidas.length > 3 ? ' ...' : ''));
         }
       } catch(e) { resumo.avisos.push(f.name + ': ' + e.message); }
       restantes--;
