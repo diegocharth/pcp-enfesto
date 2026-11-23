@@ -69,8 +69,11 @@ PREMISSAS FIXAS (documentadas para quem for manter):
 """
 
 import math
+import time
 from functools import lru_cache
 from itertools import combinations
+
+from engine import alocador_exato
 
 
 # ---------------------------------------------------------------------------
@@ -125,24 +128,15 @@ def _resolver_rolo_dp(cap_mm, itens_mm, rem, margem_mm, margem_pendente):
     return dict(escolha)
 
 
-def _alocar_cor_ordem(demanda, comp_camada_por_id, rolos_cor, config, crescente):
-    """
-    Aloca UMA cor processando os rolos numa ordem fixa (decrescente ou
-    crescente de comprimento seguro), resolvendo uma mochila limitada por rolo.
-    Devolve o resultado no contrato de _alocar_cor (sem o bloco resumo_compra,
-    que e adicionado pelo chamador). Funcao pura.
-    """
-    margem    = float(config.get("margem_seguranca_enfesto_m", 0.10))
-    ponta_min = float(config.get("ponta_minima_util_m", 0.5))
-    # margem em mm arredondada para CIMA: nunca subestima o consumo real.
-    margem_mm = int(math.ceil(margem * 1000 - 1e-6))
-    _EPS = 1e-9
+def _ordem_enfestos(demanda, comp_camada_por_id):
+    """Ordem canonica dos enfestos na saida: cc desc; empate -> maior demanda."""
+    return sorted(demanda.keys(),
+                  key=lambda m: (-comp_camada_por_id.get(m, 0.0), -demanda[m]))
 
-    # Ordem canonica dos enfestos na saida: cc desc; empate -> maior demanda.
-    ordem = sorted(demanda.keys(),
-                   key=lambda m: (-comp_camada_por_id.get(m, 0.0), -demanda[m]))
 
-    rolos = []   # estado por rolo: restante + ultimo mapa servido (p/ flag honesta)
+def _estado_rolos(rolos_cor, config):
+    """Estado por rolo: restante + ultimo mapa servido (p/ flag honesta)."""
+    rolos = []
     for i, nom in enumerate(rolos_cor):
         seguro = round(_comp_seguro(nom, config), 6)
         rolos.append({
@@ -151,6 +145,70 @@ def _alocar_cor_ordem(demanda, comp_camada_por_id, rolos_cor, config, crescente)
             "cap_mm": int(math.floor(seguro * 1000 + 1e-6)),  # capacidade p/ baixo
             "ultimo_mapa": None, "ultima_cc": 0.0,
         })
+    return rolos
+
+
+def _cortar_no_rolo(r, escolha, pagos, ordem, comp_camada_por_id, margem,
+                    fontes_por_mapa, rem):
+    """Registra no rolo r o corte de `escolha` {mapa: camadas}. Dentro do rolo o
+    corte segue a ordem dos enfestos (mais longo primeiro); os mapas de `pagos`
+    pagam a margem de faca neste rolo (fonte primaria)."""
+    _EPS = 1e-9
+    for mid in ordem:
+        k = escolha.get(mid, 0)
+        if k <= 0:
+            continue
+        cc = float(comp_camada_por_id.get(mid, 0.0))
+        eh_primaria = mid in pagos
+        overhead = margem if eh_primaria else 0.0
+        # Flag HONESTA: reaproveitamento real exige que o rolo ja tenha
+        # servido um mapa mais longo E que a sobra no momento do uso ja nao
+        # servisse a esse mapa anterior (restante < camada do mapa anterior).
+        prev_mid, prev_cc = r["ultimo_mapa"], r["ultima_cc"]
+        reap = (prev_mid is not None and prev_cc > cc + _EPS
+                and r["restante_m"] < prev_cc - _EPS)
+        fontes_por_mapa[mid].append({
+            "tipo": "ponta" if reap else "rolo",
+            "rolo_indice": r["rolo_indice"],
+            "enfesto_origem": prev_mid if reap else None,
+            "n_camadas": k, "comp_camada_m": round(cc, 4),
+            "comp_usado_m": round(k * cc + overhead, 4),
+            "primaria": eh_primaria, "reaproveitada": reap,
+        })
+        r["restante_m"] = round(r["restante_m"] - (k * cc + overhead), 6)
+        r["ultimo_mapa"], r["ultima_cc"] = mid, cc
+        rem[mid] -= k
+
+
+def _alocar_cor_plano(demanda, comp_camada_por_id, rolos_cor, config, plano):
+    """Monta o resultado de UMA cor a partir de um plano pronto (busca exata):
+    [(rolo 0-based, {mapa: camadas}, {mapas que pagam a margem neste rolo})], na
+    ordem de corte. Mesmo contrato de _alocar_cor_ordem."""
+    margem = float(config.get("margem_seguranca_enfesto_m", 0.10))
+    ordem = _ordem_enfestos(demanda, comp_camada_por_id)
+    rolos = _estado_rolos(rolos_cor, config)
+    rem = {mid: int(demanda[mid]) for mid in demanda}
+    fontes_por_mapa = {mid: [] for mid in demanda}
+    for j, escolha, pagos in plano:
+        _cortar_no_rolo(rolos[j], escolha, pagos, ordem, comp_camada_por_id, margem,
+                        fontes_por_mapa, rem)
+    return _fechar_cor(demanda, comp_camada_por_id, config, ordem, rolos, rem,
+                       fontes_por_mapa)
+
+
+def _alocar_cor_ordem(demanda, comp_camada_por_id, rolos_cor, config, crescente):
+    """
+    Aloca UMA cor processando os rolos numa ordem fixa (decrescente ou
+    crescente de comprimento seguro), resolvendo uma mochila limitada por rolo.
+    Devolve o resultado no contrato de _alocar_cor (sem o bloco resumo_compra,
+    que e adicionado pelo chamador). Funcao pura.
+    """
+    margem    = float(config.get("margem_seguranca_enfesto_m", 0.10))
+    # margem em mm arredondada para CIMA: nunca subestima o consumo real.
+    margem_mm = int(math.ceil(margem * 1000 - 1e-6))
+
+    ordem = _ordem_enfestos(demanda, comp_camada_por_id)
+    rolos = _estado_rolos(rolos_cor, config)
 
     # Camada em mm inteiros, arredondada para CIMA (conservador: mm >= metros).
     cc_mm = {mid: int(math.ceil(float(comp_camada_por_id.get(mid, 0.0)) * 1000 - 1e-6))
@@ -167,34 +225,19 @@ def _alocar_cor_ordem(demanda, comp_camada_por_id, rolos_cor, config, crescente)
             break
         escolha = _resolver_rolo_dp(r["cap_mm"], itens_mm, rem, margem_mm,
                                     frozenset(margem_pendente))
-        # Dentro do rolo o corte segue a ordem dos enfestos (mais longo primeiro).
-        for mid in ordem:
-            k = escolha.get(mid, 0)
-            if k <= 0:
-                continue
-            cc = float(comp_camada_por_id.get(mid, 0.0))
-            eh_primaria = mid in margem_pendente
-            overhead = margem if eh_primaria else 0.0
-            # Flag HONESTA: reaproveitamento real exige que o rolo ja tenha
-            # servido um mapa mais longo E que a sobra no momento do uso ja nao
-            # servisse a esse mapa anterior (restante < camada do mapa anterior).
-            prev_mid, prev_cc = r["ultimo_mapa"], r["ultima_cc"]
-            reap = (prev_mid is not None and prev_cc > cc + _EPS
-                    and r["restante_m"] < prev_cc - _EPS)
-            fontes_por_mapa[mid].append({
-                "tipo": "ponta" if reap else "rolo",
-                "rolo_indice": r["rolo_indice"],
-                "enfesto_origem": prev_mid if reap else None,
-                "n_camadas": k, "comp_camada_m": round(cc, 4),
-                "comp_usado_m": round(k * cc + overhead, 4),
-                "primaria": eh_primaria, "reaproveitada": reap,
-            })
-            r["restante_m"] = round(r["restante_m"] - (k * cc + overhead), 6)
-            r["ultimo_mapa"], r["ultima_cc"] = mid, cc
-            if eh_primaria:
-                margem_pendente.discard(mid)
-            rem[mid] -= k
+        # A margem e paga na fonte primaria: o primeiro rolo que serve o mapa.
+        pagos = {mid for mid, k in escolha.items() if k > 0 and mid in margem_pendente}
+        _cortar_no_rolo(r, escolha, pagos, ordem, comp_camada_por_id, margem,
+                        fontes_por_mapa, rem)
+        margem_pendente -= pagos
+    return _fechar_cor(demanda, comp_camada_por_id, config, ordem, rolos, rem,
+                       fontes_por_mapa)
 
+
+def _fechar_cor(demanda, comp_camada_por_id, config, ordem, rolos, rem, fontes_por_mapa):
+    """Consolida o resultado de UMA cor (enfestos, rolos usados, sobras)."""
+    margem    = float(config.get("margem_seguranca_enfesto_m", 0.10))
+    ponta_min = float(config.get("ponta_minima_util_m", 0.5))
     enfestos, camadas_alocadas = [], {}
     for mid in ordem:
         cc = float(comp_camada_por_id.get(mid, 0.0))
@@ -270,23 +313,56 @@ def _alocar_cor(demanda, comp_camada_por_id, rolos_cor, config, _refinar=True):
     seguro) e fica com a que resultar em MENOR compra; empate -> MENOS rolos
     abertos, depois menor refugo, depois menos fontes. Sem deficit, ainda tenta
     reduzir o numero de rolos abertos (_refinar_menos_rolos). Funcao pura."""
+    def _chave(r):
+        return (r["tecido_a_comprar_m"], r["n_rolos_utilizados"],
+                r["refugo_real_m"],
+                sum(len(e["fontes"]) for e in r["enfestos"]))
+
     res = _alocar_cor_ordem(demanda, comp_camada_por_id, rolos_cor, config,
                             crescente=False)
     if len(rolos_cor) > 1:
         alt = _alocar_cor_ordem(demanda, comp_camada_por_id, rolos_cor, config,
                                 crescente=True)
-
-        def _chave(r):
-            return (r["tecido_a_comprar_m"], r["n_rolos_utilizados"],
-                    r["refugo_real_m"],
-                    sum(len(e["fontes"]) for e in r["enfestos"]))
-
         if _chave(alt) < _chave(res):
             res = alt
 
-    # Bloco resumo_compra: visao de compra da cor (necessidade x disponibilidade).
-    # fragmentacao_m = quanto da compra existe so porque as pontas dos rolos
-    # ficaram curtas demais para receber camadas inteiras.
+    # Busca exata (todos os rolos juntos) nas instancias pequenas. Ela so
+    # devolve plano estritamente melhor (menos compra; ou, sem deficit, menos
+    # rolos); provado = nao existe alocacao melhor que o resultado final.
+    ex = alocador_exato.melhorar(demanda, comp_camada_por_id, rolos_cor, config, res)
+    alt_ex = None
+    if ex is not None and ex["plano"]:
+        alt_ex = _alocar_cor_plano(demanda, comp_camada_por_id, rolos_cor, config,
+                                   ex["plano"])
+        _anexar_resumo_compra(alt_ex, demanda, comp_camada_por_id, rolos_cor, config)
+    _anexar_resumo_compra(res, demanda, comp_camada_por_id, rolos_cor, config)
+
+    # Refinamento: sem deficit, tenta atender a mesma demanda abrindo MENOS
+    # rolos. So no nivel de cima (_refinar=False nas chamadas internas evita
+    # recursao subconjunto -> refinamento -> subconjunto).
+    if _refinar and not res["camadas_em_deficit"] and res["n_rolos_utilizados"] > 1:
+        res = _refinar_menos_rolos(demanda, comp_camada_por_id, rolos_cor,
+                                   config, res)
+    # Fica com o melhor dos dois pela mesma chave (no empate, o rolo a rolo).
+    # Compra em decimos de mm inteiros, como na busca: o valor arredondado a
+    # 3 casas empataria planos que diferem em menos de 1 mm.
+    def _chave_fina(r):
+        falta = sum((int(demanda[m]) - int(r["camadas_alocadas"].get(m, 0)))
+                    * int(round(float(comp_camada_por_id.get(m, 0.0)) * 10000))
+                    for m in demanda)
+        return (falta,) + _chave(r)[1:]
+
+    if alt_ex is not None and _chave_fina(alt_ex) < _chave_fina(res):
+        res = alt_ex
+    res["busca_exata"] = ("nao_tentada" if ex is None
+                          else "provado" if ex["provado"] else "nao_provado")
+    return res
+
+
+def _anexar_resumo_compra(res, demanda, comp_camada_por_id, rolos_cor, config):
+    """Bloco resumo_compra: visao de compra da cor (necessidade x disponibilidade).
+    fragmentacao_m = quanto da compra existe so porque as pontas dos rolos
+    ficaram curtas demais para receber camadas inteiras."""
     necessario = sum(int(demanda[m]) * float(comp_camada_por_id.get(m, 0.0))
                      for m in demanda)
     disp_nom = sum(float(n) for n in rolos_cor)
@@ -301,14 +377,6 @@ def _alocar_cor(demanda, comp_camada_por_id, rolos_cor, config, _refinar=True):
         "compra_recomendada_m": round(compra, 3),
         "fragmentacao_m": round(max(0.0, compra - falta), 3),
     }
-
-    # Refinamento: sem deficit, tenta atender a mesma demanda abrindo MENOS
-    # rolos. So no nivel de cima (_refinar=False nas chamadas internas evita
-    # recursao subconjunto -> refinamento -> subconjunto).
-    if _refinar and not res["camadas_em_deficit"] and res["n_rolos_utilizados"] > 1:
-        res = _refinar_menos_rolos(demanda, comp_camada_por_id, rolos_cor,
-                                   config, res)
-    return res
 
 
 def _refinar_menos_rolos(demanda, comp_camada_por_id, rolos_cor, config, res):
@@ -343,9 +411,11 @@ def _refinar_menos_rolos(demanda, comp_camada_por_id, rolos_cor, config, res):
             break
     if kmin is None:
         return res
+    # Sem busca exata aqui: ela ja testou os k maiores rolos quando coube no prazo.
+    cfg_sub = dict(config, alocacao_exata=False)
     for k in range(kmin, res["n_rolos_utilizados"]):
         r2 = _alocar_cor_subconjunto(demanda, comp_camada_por_id, metas,
-                                     sorted(ordem_idx[:k]), config,
+                                     sorted(ordem_idx[:k]), cfg_sub,
                                      _refinar=False)
         if not r2["camadas_em_deficit"]:
             return r2
@@ -660,6 +730,10 @@ def alocar_rolos(plano, rolos, config):
         }
     """
     consumo_peca, margem = _validar_entradas(plano, config)
+    # Prazo total da busca exata nesta alocacao, repartido entre as cores: cada
+    # cor recebe o que sobrou dividido pelas cores que faltam (o que uma cor
+    # nao usa passa para as seguintes; os lotes de uma cor nao tiram o das outras).
+    fim_exata = time.perf_counter() + alocador_exato.EXATA_PRAZO_TOTAL_S
     ponta_min   = float(config.get("ponta_minima_util_m", 0.5))
     mapas_plano = plano.get("mapas", [])
     camadas_plano = plano.get("camadas", {})
@@ -693,11 +767,18 @@ def alocar_rolos(plano, rolos, config):
     # Rolos de cores que nao estao no plano: nao entram na alocacao, mas
     # continuam inteiros em estoque -- precisam aparecer na conciliacao.
     fora_plano_n, fora_plano_m = 0, 0.0
+    cores_faltando = sum(1 for c in todas_cores
+                         if any(int(v) > 0 for v in camadas_plano.get(c, {}).values()))
 
     for cor in todas_cores:
         demanda   = {int(k): int(v) for k, v in camadas_plano.get(cor, {}).items() if int(v) > 0}
         metas     = _normalizar_rolos(rolos.get(cor))
         rolos_cor = [m["comprimento_m"] for m in metas]
+        if demanda:
+            agora = time.perf_counter()
+            fatia = max(0.0, fim_exata - agora) / max(1, cores_faltando)
+            cores_faltando -= 1
+            config = dict(config, _prazo_exata=agora + fatia)
 
         # Cor sem demanda real -> nada a alocar; os rolos informados contam
         # como nao utilizados (nunca descartar dados em silencio).
@@ -740,6 +821,10 @@ def alocar_rolos(plano, rolos, config):
                         demanda, comp_camada_por_id, metas, config)
                     if res_lote is not None:
                         cr = res_lote
+                        # A prova vale so para os rolos dos lotes escolhidos.
+                        n_lotes = len({m["lote"] or "S/LOTE" for m in metas})
+                        if cr.get("busca_exata") == "provado" and len(_combo) < n_lotes:
+                            cr["busca_exata"] = "provado_nos_lotes"
 
         # Metadados (nº do rolo, lote, largura, cor do fornecedor) no resultado.
         _anexar_metadados(cr, metas)
@@ -854,5 +939,6 @@ def alocar_rolos(plano, rolos, config):
         "folga_incerteza_m": float(config.get("folga_incerteza_m", 0.0)),
         "ponta_minima_util_m": float(ponta_min),
         "considerar_lote": considerar_lote,
+        "alocacao_exata": bool(config.get("alocacao_exata", True)),
     }
     return {"por_cor": resultado_por_cor, "resumo_geral": resumo_geral, "params": params}

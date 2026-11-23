@@ -60,6 +60,7 @@ pcp_enfestos/
 │   ├── mapas.py               ← gerador de composições de encaixe
 │   ├── cache_planos.py        ← cache persistente de resultados + tempos aprendidos (ETA)
 │   ├── alocador_rolos.py      ← alocacao por mochila/rolo; v2.13: metadados + Considerar Lote
+│   ├── alocador_exato.py      ← Etapa 5: busca exata da cor (poucos mapas) + busca local por pares/trios de rolos
 │   ├── planos.py              ← plano de corte portatil .plano.json (v2.13)
 │   └── import_rolos/
 │       ├── base.py            ← classe abstrata FonteRolos (contrato inclui largura_m)
@@ -118,6 +119,11 @@ python tools/bench/rodar.py                     # sai com erro se o exato piorar
 python tools/bench/opcoes.py                    # opcoes de cada caso pelo caminho de producao (pool)
 python tools/bench/gabarito_cpsat.py            # gabarito OR-Tools: so na maquina de dev, nunca na fabrica
 
+# Bancada do alocador de rolos (alocacoes reais exportadas pela tela)
+python tools/bench/alocacao.py --extrair        # monta dados/ordens/bench_alocacao.json (fora do git)
+python tools/bench/alocacao.py                  # rolo a rolo x atual (compra, rolos, prova)
+python tools/bench/alocacao.py --cpsat 120      # + gabarito CP-SAT por cor (so dev)
+
 # Testar solver diretamente
 python -c "
 import sys, json
@@ -163,6 +169,8 @@ O `interface.html` já foi corrompido antes por `Set-Content -Encoding utf8` do 
 **Cache do motor exato:** o timeout entra na assinatura (o resultado depende do tempo: prova e opção de +1 enfesto), e resultado cortado pelo prazo total (`cortado`) não é cacheado nem ensina tempo. `/calcular` devolve `status` (`ok`/`tempo`/`nao_achou`) e `cortado`. Sem OR-Tools: decisão do dono é Python puro na fábrica; OR-Tools só como gabarito em `tools/bench/`.
 
 **Alocação de rolos** usa a opção SELECIONADA na tela (single-ref), não mais sempre a Opção 1.
+
+**Alocação de rolos — Etapa 5 (23/11/2026):** o alocador rolo a rolo (uma mochila por rolo, duas ordens) continua rodando primeiro e é a reserva. Depois, por cor, `engine/alocador_exato.py`: com até `EXATA_MAX_MAPAS` (8) mapas, **busca completa** com todos os rolos juntos (prova a menor compra e, sem déficit, o menor número de rolos); com mais mapas, ou se a completa não fechar, **busca local** que re-otimiza de forma exata pares e depois trios de rolos (camadas deles + o déficit). Só troca o resultado por um estritamente melhor pela mesma chave (compra, rolos, refugo, fontes) — nunca piora. Mesmo modelo físico: mm inteiros, camada inteira, sem emenda, margem de faca 1x por mapa, **paga por qualquer rolo que sirva o mapa** (não precisa ser o primeiro; há caso real em que só assim cabe). Limites (em `engine/alocador_exato.py`) por **passos de busca** (mesma entrada → mesmo resultado): `EXATA_PASSOS` (400 mil, busca completa) e `LOCAL_PASSOS` (500 mil, busca local) por cor; o relógio é só segurança — `EXATA_PRAZO_COR_S` (4 s) por etapa e `EXATA_PRAZO_TOTAL_S` (15 s) por alocação, repartido entre as cores (o que uma cor não usa passa às seguintes; os lotes de uma cor não tiram o prazo das outras). Até `EXATA_MAX_ROLOS` (200) rolos por cor na busca completa. Cada cor devolve `busca_exata`: `provado` / `provado_nos_lotes` (modo lote: ótimo só entre os rolos dos lotes escolhidos) / `nao_provado` / `nao_tentada`; `config.json → "alocacao_exata": false` desliga (volta ao rolo a rolo). **Medido (bancada + CP-SAT):** casos pequenos reais — o rolo a rolo comprava 3,5-5,25 m a mais em 3 de 8 cores, inclusive mandando comprar quando os rolos bastavam; agora igual ao gabarito, provado, em milissegundos. Plano multi-ref de 02/07 (17 mapas por cor): busca local -22,0 m nas 10 combinações cor×folga (CP-SAT: -42,8 m); a alocação inteira de 5 cores passa de 0,5 s para ~7 s. Observação: o próprio rolo a rolo (`_resolver_rolo_dp`) fica muito lento com camadas curtas (1-3 m), rolos longos (100+ m) e muitos mapas — já era assim antes da Etapa 5.
 
 **Multi-ref — avisos honestos (Etapa 3):** `resolver_multiref` devolve em `resume_out["status"]` o motivo da parada: `impossivel` (prova sem busca: capacidade da mesa/folhas), `nao_achou` (a busca terminou sozinha, por estagnação), `tempo` (o orçamento acabou: INCONCLUSIVO) ou `ok`. `convergiu` só é verdadeiro se a busca não foi limitada pelo relógio — inclusive a descida para menos enfestos. Só resultado convergido é cacheado e ensina tempo. A tela mostra cada caso com etiqueta própria (`_avisoGrupoSemSolucao`) e, no fim, avisa quantos cálculos foram inconclusivos. Cálculo individual dentro do multi-ref usa sempre o timeout da tela (o motor exato para sozinho quando termina).
 
@@ -248,6 +256,7 @@ Chave nova no `config.json`: `"motor_single": "exato"` (ou `"classico"` para vol
   "folga_incerteza_pct": 0.03,
   "folga_incerteza_m": 0.0,
   "ponta_minima_util_m": 0.5,
+  "alocacao_exata": true,
   "auto_update": true,
   "github_repo": "SEU_USUARIO/pcp-enfestos",
   "update_canal": "estavel"
