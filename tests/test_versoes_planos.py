@@ -215,3 +215,11 @@ def test_falha_na_extracao_cancela_pendente(tmp_path):
     assert not ok
     assert versoes.restauracao_pendente(base_dir=base) is None
     assert open(os.path.join(base, "VERSION")).read().strip() == "2.0.0"
+
+
+def test_plano_nome_do_arquivo_mantem_letras_acentuadas(tmp_path):
+    # "Opcao 2" e "CALCA" no nome do arquivo (antes viravam "Opo" e "CALA").
+    cam = planos.salvar_plano(PLANO_OK, "CALÇA NAS - Opção 2: Menor desvio", str(tmp_path))
+    nome = os.path.basename(cam)
+    assert "CALCA_NAS" in nome and "Opcao_2" in nome
+    assert all(ord(c) < 128 for c in nome)

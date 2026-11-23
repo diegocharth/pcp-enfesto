@@ -29,6 +29,7 @@ import json
 import os
 import re
 import time
+import unicodedata
 
 FORMATO = "pcp-enfestos-plano/1"
 
@@ -103,7 +104,11 @@ def validar_plano(plano):
 
 
 def _sanitizar_nome(referencia):
-    ref = re.sub(r"[^A-Za-z0-9_ .-]+", "", str(referencia or "REF")).strip()
+    # Letras acentuadas viram a letra sem acento ("Opção" -> "Opcao", "CALÇA" ->
+    # "CALCA") antes de tirar o que nao e seguro em nome de arquivo.
+    ref = unicodedata.normalize("NFKD", str(referencia or "REF"))
+    ref = ref.encode("ascii", "ignore").decode("ascii")
+    ref = re.sub(r"[^A-Za-z0-9_ .-]+", "", ref).strip()
     return (ref.replace(" ", "_") or "REF")[:40]
 
 
