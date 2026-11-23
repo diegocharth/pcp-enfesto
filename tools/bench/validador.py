@@ -69,3 +69,56 @@ def chave_ranking(sol):
     r = sol["resumo"]
     pecas = sum(sum(int(v) for v in m.values()) for m in sol["mapas"])
     return (r["n_mapas"], r["desvio_total"], -pecas)
+
+
+def validar_multiref(sol, tamanhos, config):
+    """Erros de uma solucao do solver multi-ref (vazia = valida). Confere, sem
+    usar codigo do solver: comprimento de cada enfesto na mesa (soma das pecas x
+    consumo de cada referencia), limite de folhas por enfesto, FOLHA COMPARTILHADA
+    (mesma cor, mesmo enfesto = mesmo numero de folhas em todas as referencias)
+    e a tolerancia de cada referencia x cor x tamanho."""
+    erros = []
+    mesa = float(config.get("mesa_comprimento_m", 10.0))
+    max_folhas = int(config.get("limite_folhas_padrao", 70))
+    refs = sol.get("refs_sol") or []
+    n = sol.get("n_mapas") or 0
+    if not refs or n < 1:
+        return ["solucao sem referencias ou sem enfestos"]
+    folhas_cor = {}
+    for r in refs:
+        if len(r["mapas"]) != n:
+            erros.append(f"{r['nome']}: {len(r['mapas'])} mapas para {n} enfestos")
+            return erros
+        for cor, fs in r["folhas"].items():
+            if len(fs) != n:
+                erros.append(f"{r['nome']}/{cor}: folhas com tamanho {len(fs)}")
+                return erros
+            if cor in folhas_cor and list(folhas_cor[cor]) != list(fs):
+                erros.append(f"{cor}: folhas diferentes entre referencias no mesmo enfesto "
+                             f"({folhas_cor[cor]} x {fs})")
+            folhas_cor.setdefault(cor, list(fs))
+    for k in range(n):
+        comp = sum(sum(int(v) for v in r["mapas"][k].values()) * float(r["consumo"]) for r in refs)
+        if comp > mesa + 1e-6:
+            erros.append(f"enfesto {k + 1}: {comp:.3f}m passa da mesa de {mesa}m")
+        tot = sum(int(fs[k]) for fs in folhas_cor.values())
+        if tot > max_folhas:
+            erros.append(f"enfesto {k + 1}: {tot} folhas passa do limite de {max_folhas}")
+        if all(sum(r["mapas"][k].values()) == 0 for r in refs):
+            erros.append(f"enfesto {k + 1}: vazio")
+    desvio = 0
+    for r in refs:
+        for cor, gc in r["grade"].items():
+            fs = folhas_cor.get(cor, [0] * n)
+            for t in tamanhos:
+                cortado = sum(int(fs[k]) * int(r["mapas"][k].get(t, 0)) for k in range(n))
+                pedido = int(gc.get(t, 0))
+                lo, hi = r["limites"][cor][t]
+                d = cortado - pedido
+                desvio += abs(d)
+                if d < lo or d > hi:
+                    erros.append(f"{r['nome']}/{cor}/{t}: cortado {cortado} para pedido {pedido} "
+                                 f"(desvio {d:+d} fora de [{lo:+d}, {hi:+d}])")
+    if sol.get("desvio_total") is not None and sol["desvio_total"] != desvio:
+        erros.append(f"desvio_total informado {sol['desvio_total']} difere do recalculado {desvio}")
+    return erros

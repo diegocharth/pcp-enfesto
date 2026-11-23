@@ -27,13 +27,14 @@ from itertools import combinations_with_replacement
 from engine.solver import _resolver_folhas_cor
 from engine.multiref_pool import _piso_capacidade, _pool_composicoes
 from engine.multiref_local import buscar_local, _HAS_NP
+from engine.multiref_exato import preparar as _preparar_exato, folhas_exatas, TRUNCOU
 
 if _HAS_NP:
     import numpy as _np
 
 # Revisao do motor multi-ref: entra na assinatura do cache e nos tempos
 # aprendidos. Mudar sempre que uma alteracao aqui puder mudar o resultado.
-MOTOR_ID = "multiref-2"
+MOTOR_ID = "multiref-3"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -248,16 +249,23 @@ def resolver_multiref(refs_data, tamanhos, config, callback=None, timeout_s=120,
             dims_np[cor] = (comp_tams, gv, lov, hiv)
 
     consumos_f = [float(r.get("consumo", 1.0645)) for r in refs_data]
+    prep_exato = _preparar_exato(todas_cores, dims_por_cor)
 
     # ── Avaliação de um combo (compartilhada pelas fases A e B) ─────────────
     def avaliar_combo(combo, n_mapas):
-        """Solve exato/CD por cor. Retorna (folhas_por_cor, desvios) ou None."""
+        """Folhas por cor do combo, com o menor desvio e o limite de folhas de
+        cada enfesto repartido entre as cores de forma exata
+        (engine/multiref_exato.py). Retorna folhas_por_cor ou None (inviavel)."""
         # Defesa em profundidade: comprimento FISICO do slot nunca passa da
         # mesa (validado em float real, independente de como o combo nasceu)
         for k in range(n_mapas):
             ln = sum(sum(combo[k][ri].values()) * consumos_f[ri] for ri in range(N))
             if ln > mesa + 1e-6:
                 return None
+        exato = folhas_exatas(combo, n_mapas, todas_cores, dims_por_cor, prep_exato, max_folhas)
+        if exato != TRUNCOU:
+            return exato
+        # guarda de tamanho disparou: metodo antigo, cor a cor (valido, nao otimo)
         used_per_slot = [0] * n_mapas
         folhas_por_cor = {}
         for cor in todas_cores:

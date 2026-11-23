@@ -984,6 +984,57 @@ function _individualInconclusivo(respOk, d){
   return !!(d && d.cortado);
 }
 
+// Todas as particoes das referencias com os resultados ja calculados (cache por
+// chave "i,j,..."). Ordem: menos enfestos; no empate, menor desvio total.
+function _avaliarParticoesCache(idxs, cache){
+  var out = [];
+  _particoes(idxs).forEach(function(particao){
+    var total = 0, desvio = 0, ok = true, grupos = [];
+    for (var i = 0; i < particao.length; i++){
+      var g = particao[i];
+      var k = g.slice().sort(function(a, b){ return a - b; }).join(',');
+      var r = cache[k];
+      if (!r || r.erro){ ok = false; break; }
+      total += r.nEnfestos;
+      var s0 = r.data && r.data.solucoes && r.data.solucoes[0];
+      desvio += (s0 && s0.resumo && s0.resumo.desvio_total) || 0;
+      grupos.push({idxs: g, key: k, nEnfestos: r.nEnfestos, tipo: r.tipo, data: r.data});
+    }
+    if (ok) out.push({grupos: grupos, total: total, desvio: desvio});
+  });
+  out.sort(function(a, b){ return (a.total - b.total) || (a.desvio - b.desvio); });
+  return out;
+}
+
+// Teto de enfestos para calcular um grupo combinado. So vale combinar se usar
+// MENOS enfestos que a melhor forma ja conhecida de cortar as mesmas
+// referencias (separadas ou em subgrupos ja calculados) e que a melhor
+// particao global. Sem dado de alguma referencia, nao limita (99).
+function _tetoGrupo(grupo, cache, bestTotal){
+  var interno = Infinity;
+  _particoes(grupo).forEach(function(particao){
+    if (particao.length < 2) return;           // o proprio grupo ainda nao existe
+    var tot = 0;
+    for (var i = 0; i < particao.length; i++){
+      var k = particao[i].slice().sort(function(a, b){ return a - b; }).join(',');
+      var r = cache[k];
+      if (!r || r.erro){ tot = Infinity; break; }
+      tot += r.nEnfestos;
+    }
+    if (tot < interno) interno = tot;
+  });
+  var teto = isFinite(interno) ? interno - 1 : 99;
+  if (isFinite(bestTotal)) teto = Math.min(teto, bestTotal - 1);
+  return Math.max(0, teto);
+}
+
+// Solucao usada de um grupo do multi-ref: a opcao aberta na tela (padrao 1).
+function _solucaoDoGrupo(gp, gi){
+  var sols = (gp && gp.data && gp.data.solucoes) || [];
+  var i = (window._opGrupo || {})[gi] || 0;
+  return sols[i] || sols[0];
+}
+
 // Traduz o motivo de um agrupamento sem solucao num aviso para o operador.
 // status do servidor: impossivel (prova) | nao_achou (busca concluida) | tempo.
 function _avisoGrupoSemSolucao(respOk, d){
@@ -1114,22 +1165,7 @@ async function calcular(){
 
     // Avalia todas as particoes possiveis com o que ja foi calculado no cache.
     // Retorna lista ordenada por total de enfestos (menor = melhor).
-    function _avaliarParticoes(){
-      const out=[];
-      for(const particao of _particoes(idxs)){
-        let total=0, ok=true; const grupos=[];
-        for(const g of particao){
-          const k=[...g].sort((a,b)=>a-b).join(',');
-          const r=cache[k];
-          if(!r||r.erro){ ok=false; break; }
-          total+=r.nEnfestos;
-          grupos.push({idxs:g,key:k,nEnfestos:r.nEnfestos,tipo:r.tipo,data:r.data});
-        }
-        if(ok) out.push({grupos,total});
-      }
-      out.sort((a,b)=>a.total-b.total);
-      return out;
-    }
+    function _avaliarParticoes(){ return _avaliarParticoesCache(idxs, cache); }
 
     // Subgrupos (tamanho >= 2), do MENOR para o maior -- pares antes de trios.
     // Assim achamos boas particoes cedo e os grupos maiores ja entram com poda forte.
@@ -1198,10 +1234,8 @@ async function calcular(){
       const lbl=rG.length>28?rG.substring(0,25)+'...':rG;
       _setEtapa(`g${key}`,lbl,'atual');
 
-      const temTodos = grupo.every(ri=>indiv[ri]!=null);
-      const baselineG = temTodos ? grupo.reduce((s,ri)=>s+indiv[ri],0) : 99;
-      const capGlobal = isFinite(bestTotal) ? (bestTotal - 1) : 99;
-      const cap = Math.max(0, Math.min(baselineG-1, capGlobal));
+      // teto: melhor particao interna ja calculada (pares antes dos trios) e global
+      const cap = _tetoGrupo(grupo, cache, bestTotal);
 
       if(cap < 1){
         L(`[${stepNo}/${totalSteps}] ${rG}: combinar nao reduz enfestos (poda). Pulando.`);
@@ -1602,6 +1636,20 @@ function renderResultadoComComparacao(dadoCombinado, dadosSep, totalSep){
 function atOptMulti(tid,pid,i){
   document.querySelectorAll(`#${tid} .otab`).forEach((t,j)=>t.classList.toggle('at',j===i));
   document.querySelectorAll(`#${pid} .opan`).forEach((p,j)=>p.classList.toggle('at',j===i));
+  // Melhor agrupamento: a alocacao de rolos usa a opcao aberta em cada grupo.
+  if (/^mgt\d+$/.test(tid)) {
+    const gi = parseInt(tid.slice(3), 10);
+    window._opGrupo = window._opGrupo || {};
+    if ((window._opGrupo[gi] || 0) !== i) {
+      window._opGrupo[gi] = i;
+      if (typeof _planoImportado === 'undefined' || !_planoImportado) {
+        window._compRealAudaces = {};
+        try{ _esconderResultadoAlocacao(); }catch(e){}
+        try{ _renderMapasAudaces(); }catch(e){}
+      }
+      try{ _renderPlanoAlocacaoInfo(); }catch(e){}
+    }
+  }
 }
 
 async function exportarRef(ri){
@@ -1612,6 +1660,7 @@ async function exportarRef(ri){
 
 function renderResultadoGrupos(validos){
   window._multiGrupoValidos = validos;
+  window._opGrupo = {};               // resultado novo: Opcao 1 em todos os grupos
   window._compRealAudaces = {};       // comprimentos do Audaces eram de outro plano
   try{ _renderMapasAudaces(); }catch(e){}
   const best = validos[0];
@@ -1624,7 +1673,8 @@ function renderResultadoGrupos(validos){
       <div style="font-weight:700;font-size:13px;margin-bottom:8px">📊 Comparação de Agrupamentos (${validos.length} válidos)</div>
       <table style="width:100%;border-collapse:collapse;font-size:12px">
         <tr><th style="text-align:left;padding:4px 8px;background:var(--sf3)">Agrupamento</th>
-            <th style="text-align:center;padding:4px 8px;background:var(--sf3);width:80px">Enfestos</th></tr>`;
+            <th style="text-align:center;padding:4px 8px;background:var(--sf3);width:80px">Enfestos</th>
+            <th style="text-align:center;padding:4px 8px;background:var(--sf3);width:80px">Desvio</th></tr>`;
     top.forEach((pr,i)=>{
       const isBest=i===0;
       const desc=pr.grupos.map(g=>g.idxs.length===1
@@ -1633,10 +1683,11 @@ function renderResultadoGrupos(validos){
       ).join(' + ');
       html+=`<tr style="${isBest?'background:var(--okb);':''}">
         <td style="padding:4px 8px;${isBest?'font-weight:700':''}">${isBest?'🏆 ':''}${desc}</td>
-        <td style="text-align:center;padding:4px 8px;${isBest?'font-weight:700':''}">${pr.total}</td></tr>`;
+        <td style="text-align:center;padding:4px 8px;${isBest?'font-weight:700':''}">${pr.total}</td>
+        <td style="text-align:center;padding:4px 8px;${isBest?'font-weight:700':''}">${pr.desvio}</td></tr>`;
     });
     if(validos.length>10)
-      html+=`<tr><td colspan="2" style="padding:4px 8px;color:var(--tx3);font-style:italic">… e mais ${validos.length-10} combinações válidas</td></tr>`;
+      html+=`<tr><td colspan="3" style="padding:4px 8px;color:var(--tx3);font-style:italic">… e mais ${validos.length-10} combinações válidas</td></tr>`;
     html+=`</table></div>`;
   }
 
@@ -2386,8 +2437,8 @@ function _montarPlanoParaAlocacao() {
 
   // Multi-ref: agrega todos os grupos do melhor agrupamento.
   if (window._resultadoMulti && (window._resultadoMulti.grupos || []).length) {
-    window._resultadoMulti.grupos.forEach(function(gp){
-      var sol = (gp.data && gp.data.solucoes || [])[0];
+    window._resultadoMulti.grupos.forEach(function(gp, gi){
+      var sol = _solucaoDoGrupo(gp, gi);      // opcao aberta em cada grupo
       if (!sol) return;
       if (gp.tipo === 'multiref') addGrupoMulti(sol);
       else addGrupoSingle(sol, (gp.data.config && gp.data.config.consumo_peca_m) || 1.0645);
@@ -2736,7 +2787,16 @@ async function exportarAlocacao() {
 // Qual opcao do single-ref esta sendo usada (alocacao, plano salvo).
 // sempre=false: vazio para a Opcao 1 (o nome do plano salvo nao muda).
 function _sufixoOpcao(sempre) {
-  if (window._resultadoMulti || typeof resultado === 'undefined' || !resultado
+  if (window._resultadoMulti) {
+    var esc = [];
+    var gs = window._resultadoMulti.grupos || [];
+    for (var g = 0; g < gs.length; g++) {
+      var io2 = (window._opGrupo || {})[g] || 0;
+      if (io2) esc.push('grupo ' + (g + 1) + ': Op\u00e7\u00e3o ' + (io2 + 1));
+    }
+    return esc.length ? ' (' + esc.join(', ') + ')' : '';
+  }
+  if (typeof resultado === 'undefined' || !resultado
       || !resultado.solucoes || resultado.solucoes.length < 2) return '';
   var io = window._opAtiva || 0;
   if (!io && !sempre) return '';
@@ -2757,7 +2817,7 @@ function _renderPlanoAlocacaoInfo() {
     if (btn) btn.style.display = '';
   } else if (_montarPlanoParaAlocacao()) {
     el.textContent = 'usando o plano calculado acima (' + _getReferencia() + ')'
-      + (window._resultadoMulti ? ' - no multi-ref vale a Op\u00e7\u00e3o 1 de cada grupo'
+      + (window._resultadoMulti ? ' - multi-ref: vale a op\u00e7\u00e3o aberta em cada grupo' + _sufixoOpcao(false)
                                 : _sufixoOpcao(true));
     if (btn) btn.style.display = 'none';
   } else {

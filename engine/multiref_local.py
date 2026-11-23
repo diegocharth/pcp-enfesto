@@ -258,6 +258,7 @@ def buscar_local(refs_data, tamanhos, n_mapas, mesa, max_folhas, dims_np,
 
     encontradas = []
     MOVES_POR_ITER = 16
+    POLIR_PACIENCIA = 8     # rodadas seguidas sem melhorar o desvio antes de parar
     # Semente com slot fisicamente impossivel (acima da mesa) nao entra: os
     # moves validam a mesa, mas um slot invalido HERDADO nunca seria corrigido
     seeds_X = [X for X in (estado_para_X(s) for s in seeds)
@@ -307,6 +308,23 @@ def buscar_local(refs_data, tamanhos, n_mapas, mesa, max_folhas, dims_np,
             while _t.time() < fim_fatia and not _estagnado():
                 progrediu = True
                 if V == 0:
+                    # Polimento: achou combinacao viavel -> desce no desvio sem
+                    # perder a viabilidade (antes guardava a primeira viavel).
+                    sem_melhora = 0
+                    while _t.time() < fim_fatia and sem_melhora < POLIR_PACIENCIA:
+                        melhor_p = None
+                        for _ in range(MOVES_POR_ITER):
+                            cand = gerar_move(X, piores)
+                            if cand is None:
+                                continue
+                            V2, D2, f2, p2 = av.avaliar(cand, fs_pai=folhas)
+                            if V2 == 0 and D2 < D and (melhor_p is None or D2 < melhor_p[0]):
+                                melhor_p = (D2, cand, f2, p2)
+                        if melhor_p is None:
+                            sem_melhora += 1
+                            continue
+                        D, X, folhas, piores = melhor_p
+                        sem_melhora = 0
                     kx = chave(X)
                     if kx not in ja_encontradas:
                         ja_encontradas.add(kx)

@@ -313,7 +313,7 @@ var suf1 = _sufixoOpcao();
 window._opAtiva = 0;
 var suf0 = _sufixoOpcao();
 console.log(JSON.stringify({multi: multi, suf1: suf1, suf0: suf0}));''')
-    assert "1" in r["multi"] and "cada grupo" in r["multi"].lower()
+    assert "aberta em cada grupo" in r["multi"].lower()
     assert "2" in r["suf1"] and "menor desvio" in r["suf1"].lower()
     assert r["suf0"] == ""
     # o texto exibido pode ter acento (vem de escape \u); o que precisa ser ASCII
