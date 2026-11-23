@@ -219,6 +219,16 @@ def _sufixos_tempos(cfg):
             "sufixo_grupo": f":{MOTOR_MULTIREF_ID}"}
 
 
+def _libs_faltando():
+    """Bibliotecas do requirements.txt que nao estao instaladas nesta maquina.
+    Sem elas o sistema perde recurso (numpy: busca local do multi-ref;
+    pdfplumber: importar rolos do PDF; openpyxl: exportar Excel) -- a tela
+    avisa em vez de perder em silencio. O auto-update nao instala bibliotecas."""
+    import importlib.util
+    return [n for n in ("numpy", "pdfplumber", "openpyxl")
+            if importlib.util.find_spec(n) is None]
+
+
 def _ensure_dados():
     os.makedirs(os.path.join(BASE_DIR, "dados"), exist_ok=True)
     os.makedirs(os.path.join(BASE_DIR, "dados", "resultados"), exist_ok=True)
@@ -407,7 +417,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, carregar_params_salvos())
         elif path == "/config_pub":
             cfg = carregar_config()
-            self._send(200, {"tem_api_key": bool(cfg.get("anthropic_api_key","").strip())})
+            self._send(200, {"tem_api_key": bool(cfg.get("anthropic_api_key","").strip()),
+                             "faltando": _libs_faltando()})
         elif path == "/progresso":
             from urllib.parse import parse_qs
             job = (parse_qs(urlparse(self.path).query).get("job") or [""])[0]
@@ -1129,6 +1140,12 @@ def _matar_zumbi_porta(porta):
 def main():
     global _servidor_ref
     _ensure_dados()
+    try:
+        _faltam = _libs_faltando()
+        if _faltam:
+            _log.warning("Bibliotecas faltando: %s (rode INSTALAR.bat)", ", ".join(_faltam))
+    except Exception:
+        pass
     # Snapshot permanente da versao atual (dados/_versoes/): garante que toda
     # versao que rodou nesta maquina pode ser restaurada depois. Idempotente.
     try:

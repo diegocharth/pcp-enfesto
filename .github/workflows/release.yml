@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'VERSION'
+  workflow_dispatch: {}   # permite rodar de novo pela aba Actions (ex.: teste instavel)
 
 jobs:
   release:
@@ -33,6 +34,22 @@ jobs:
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Nunca publicar para a fabrica uma versao com teste falhando: se a suite
+      # falhar, o job para aqui e nenhuma release e criada.
+      - name: Python
+        if: steps.check.outputs.exists == 'false'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Dependencias
+        if: steps.check.outputs.exists == 'false'
+        run: python -m pip install -r requirements.txt pytest
+
+      - name: Testes (nao publica se falhar)
+        if: steps.check.outputs.exists == 'false'
+        run: python -m pytest tests/ -q
 
       - name: Criar zip
         if: steps.check.outputs.exists == 'false'
