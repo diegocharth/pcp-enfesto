@@ -151,7 +151,9 @@ def priorizar_mapas(mapas: list, grade_total: dict, tamanhos: list, top_n: int =
             in_result.add(mkey)
 
     # 3. Cobertores de tamanhos raros
-    for t in sorted(tams_raros, key=lambda t: grade_total.get(t, 0)):
+    # Empate de volume: desempata pela posicao do tamanho. Sem isso a ordem segue o
+    # hash do conjunto, que muda a cada processo (PYTHONHASHSEED aleatorio).
+    for t in sorted(tams_raros, key=lambda t: (grade_total.get(t, 0), tamanhos.index(t))):
         count = 0
         for m in rare_maps_per_tam[t]:
             mkey = tuple(sorted(m.items()))
@@ -170,8 +172,12 @@ def priorizar_mapas(mapas: list, grade_total: dict, tamanhos: list, top_n: int =
     # 5. Mapas históricos no início (passados pelo chamador)
     if historicos:
         mapas_set = {tuple(sorted(m.items())) for m in mapas}
+        # Sem repeticao: o motor exato salva planos com o mesmo mapa em varios enfestos.
+        _vistos_h = set()
         hist_valid = [m for m in historicos
-                      if tuple(sorted(m.items())) in mapas_set]
+                      if tuple(sorted(m.items())) in mapas_set
+                      and not (tuple(sorted(m.items())) in _vistos_h
+                               or _vistos_h.add(tuple(sorted(m.items()))))]
         if hist_valid:
             hist_keys = {tuple(sorted(m.items())) for m in hist_valid}
             resto = [m for m in result if tuple(sorted(m.items())) not in hist_keys]

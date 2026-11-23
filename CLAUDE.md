@@ -11,7 +11,7 @@ Roda como servidor Python local na porta 5050. Interface HTML no navegador. Sem 
 
 **Stack:** Python 3.10+ · HTML/CSS/JS vanilla · openpyxl · pdfplumber · Windows 10/11
 
-**Versão atual:** 2.13.0
+**Versão atual:** 2.14.0 (publicada). O ramo local `solver-exato` traz o motor exato do single-ref e as opções N / N+1 / mapas cheios — ainda NÃO publicado (push na `main` com `VERSION` novo = deploy na fábrica).
 
 ---
 
@@ -49,7 +49,12 @@ pcp_enfestos/
 ├── interface.html             ← UI completa no navegador (~1800 linhas)
 ├── config.json                ← parâmetros padrão persistentes
 ├── engine/
-│   ├── solver.py              ← algoritmo de busca — NÃO MODIFICAR
+│   ├── solver_exato.py        ← motor EXATO do single-ref (padrão no ramo solver-exato)
+│   ├── exato_folhas.py        ← folhas exatas por cor + repartição das 70 folhas entre cores + montagem/MOTOR_ID
+│   ├── exato_fatias.py        ← busca fatiada pelo pool: rodadas curtas, retomada, orçamento de prova
+│   ├── solver.py              ← motor clássico, mantido como RESERVA — NÃO MODIFICAR
+│   ├── paralelo.py            ← pool de processos dos cálculos (tipos: single, exato, multiref)
+│   ├── multiref_pool.py / multiref_local.py ← apoio do solver multi-ref (v2.12)
 │   ├── solver_multiref.py     ← solver multi-referência (v2.9: fix crash; v2.10: n_mapas_max p/ branch-and-bound)
 │   ├── tolerancia.py          ← regras de desvio permitido por tamanho
 │   ├── mapas.py               ← gerador de composições de encaixe
@@ -102,8 +107,16 @@ python main.py
 curl http://localhost:5050/versao
 # → {"versao": "2.8.0"}
 
-# Rodar todos os testes (54 no total)
-python -m pytest tests/ -v
+# Rodar todos os testes (~200, cerca de 4 min)
+python -m pytest tests/ -q
+
+# Bancada de comparacao dos motores single-ref (fora do zip da fabrica).
+# Compara motor classico x exato caso a caso, valida as restricoes duras e
+# confere contra o gabarito. Rodar SEMPRE antes de afirmar que algo melhorou.
+python tools/bench/corpus.py --importar-cache   # monta dados/ordens/bench_corpus.json (OPs reais, fora do git)
+python tools/bench/rodar.py                     # sai com erro se o exato piorar algum caso
+python tools/bench/opcoes.py                    # opcoes de cada caso pelo caminho de producao (pool)
+python tools/bench/gabarito_cpsat.py            # gabarito OR-Tools: so na maquina de dev, nunca na fabrica
 
 # Testar solver diretamente
 python -c "
@@ -132,14 +145,30 @@ O `interface.html` já foi corrompido antes por `Set-Content -Encoding utf8` do 
 
 ---
 
-## Algoritmo do Solver (NÃO TOCAR)
+## Algoritmo do Solver
 
-**Hierarquia de otimização:**
-1. **Menor desvio da grade** — premissa absoluta
-2. **Maior média de peças/mapa** — melhor aproveitamento de tecido
-3. **Menor número de enfestos** — menos setup
+**Dois motores single-ref** (`config.json → "motor_single"`): `exato` (padrão no código do ramo `solver-exato`) e `classico` (`engine/solver.py`, intocado, reserva). Se o exato falhar, o servidor cai sozinho no clássico. O motor entra na assinatura do cache.
 
-**Ranqueamento real (lexicográfico, sem pesos configuráveis):** a ordenação das soluções é estritamente lexicográfica — `menos enfestos -> menor desvio -> mais peças/mapa -> menor desvio relativo`. NÃO existem pesos de eficiência configuráveis (os antigos `peso_enc`/`peso_op`/`peso_eficiencia_*` eram placebo e foram removidos — o solver nunca os lia).
+**Tolerância é restrição dura.** Dentro dela, a regra decidida pelo Diego em 10/11/2026 é:
+1. **Menos enfestos primeiro** — e, no mesmo número de enfestos, menor desvio; com desvio igual, **mapas mais cheios**; depois menor desvio relativo.
+2. **Mostrar sempre a alternativa de 1 enfesto a mais** quando ela reduz o desvio — o operador decide entre menos enfestos e menor desvio.
+3. **Mapas mais cheios com desvio maior nunca são automáticos**: aparecem como opção separada para o operador aprovar.
+
+(O texto antigo deste arquivo dizia "menor desvio = premissa absoluta" e contradizia o código; a regra acima é a que vale.)
+
+**Opções devolvidas pelo motor exato** (`resumo["papel"]`, nesta ordem): `minimo_enfestos` (sempre) · `menor_desvio` (1 enfesto a mais, só se o desvio cair) · `mapas_cheios` (mesmo nº de enfestos, o de menor desvio entre os mais cheios) · `alternativa` (completa até `num_opcoes_saida`). Com `num_opcoes_saida = 1` volta só a primeira. Cada opção traz `rotulo`, `comparacao` (em relação à Opção 1) e `prova`: `provado` (busca completa em todos os mapas) ou `nao_provado` (melhor encontrado no tempo/pool).
+
+**O que o motor exato faz de diferente:** folhas por cor exatas (o clássico perdia soluções com tolerância assimétrica, ex.: "G não cresce"); limite de folhas repartido entre as cores de forma conjunta; todos os mapas, com repetição, até 3 enfestos (4+ usa o pool do clássico). Pelo servidor, a coordenação roda na thread do pedido e cada varredura é fatiada entre os processos de `engine/paralelo.py` (um cálculo usa vários núcleos; o resultado é idêntico ao serial quando a varredura termina). Quando já existe solução, a varredura completa pode usar até metade do tempo restante para provar o ótimo (`_orcamento_prova`). Cada tarefa no pool dura no máximo `RODADA_S` (3 s) e a fatia retoma de onde parou; com vários cálculos exatos ao mesmo tempo os processos são divididos entre eles — sem isso um cálculo pesado segurava o pool e um cálculo simples voltava "sem solução". As fatias recebem a lista de mapas do coordenador (a ordem não pode depender do processo).
+
+**Cache do motor exato:** o timeout entra na assinatura (o resultado depende do tempo: prova e opção de +1 enfesto), e resultado cortado pelo prazo total (`cortado`) não é cacheado nem ensina tempo. `/calcular` devolve `status` (`ok`/`tempo`/`nao_achou`) e `cortado`. Sem OR-Tools: decisão do dono é Python puro na fábrica; OR-Tools só como gabarito em `tools/bench/`.
+
+**Alocação de rolos** usa a opção SELECIONADA na tela (single-ref), não mais sempre a Opção 1.
+
+**Multi-ref — avisos honestos (Etapa 3):** `resolver_multiref` devolve em `resume_out["status"]` o motivo da parada: `impossivel` (prova sem busca: capacidade da mesa/folhas), `nao_achou` (a busca terminou sozinha, por estagnação), `tempo` (o orçamento acabou: INCONCLUSIVO) ou `ok`. `convergiu` só é verdadeiro se a busca não foi limitada pelo relógio — inclusive a descida para menos enfestos. Só resultado convergido é cacheado e ensina tempo. A tela mostra cada caso com etiqueta própria (`_avisoGrupoSemSolucao`) e, no fim, avisa quantos cálculos foram inconclusivos. Cálculo individual dentro do multi-ref usa sempre o timeout da tela (o motor exato para sozinho quando termina).
+
+**Revisões de motor:** `MOTOR_ID` do motor exato (em `engine/exato_folhas.py`) e `MOTOR_ID` do multi-ref (em `engine/solver_multiref.py`) entram na assinatura do cache e nas chaves de tempo aprendido (`indiv:Nc:<motor>`, `grupo:Rr:Cc:<motor>`; o clássico fica sem sufixo). **Ao mudar o resultado de um motor, mude o `MOTOR_ID` dele** — senão a fábrica continua recebendo planos antigos do cache.
+
+**Ranqueamento do motor clássico (reserva):** estritamente lexicográfico — `menos enfestos -> menor desvio -> mais peças/mapa -> menor desvio relativo`. NÃO existem pesos de eficiência configuráveis (os antigos `peso_enc`/`peso_op`/`peso_eficiencia_*` eram placebo e foram removidos — o solver nunca os lia).
 
 **Regra crítica — Mapas Estratégicos:**
 - `hi = 0` → cria mapa puro dedicado (ex: G=1 somente) — **obrigatório**
@@ -190,11 +219,14 @@ O `interface.html` já foi corrompido antes por `Set-Content -Encoding utf8` do 
 ```
 openpyxl      — exportar planilhas Excel
 pdfplumber    — importar rolos do ERP via PDF
+numpy         — usado pelo motor clássico e pela busca local do multi-ref
 ```
 
-Instalar: `pip install openpyxl pdfplumber`
+Instalar: `pip install openpyxl pdfplumber numpy`
 
-O restante usa apenas stdlib (http.server, json, os, threading, urllib, zipfile, etc.).
+O motor exato do single-ref é Python puro (não precisa de numpy). Sem numpy o multi-ref perde a busca local em silêncio — conferir na máquina da fábrica. O restante usa apenas stdlib (http.server, json, os, threading, urllib, zipfile, etc.). O OR-Tools NÃO é dependência: só o gabarito de `tools/bench/` o usa, na máquina de desenvolvimento.
+
+Chave nova no `config.json`: `"motor_single": "exato"` (ou `"classico"` para voltar ao motor antigo sem trocar de versão).
 
 ---
 
@@ -227,7 +259,11 @@ Para ativar auto-update: preencher `github_repo` com o repositório real (ex: `"
 ## Grade de Teste Rápido
 
 ```python
-# Blazer Isadora — resultado de referência: 3 enfestos | desvio ≤ 14 | ≥7 pç/mapa
+# Blazer Isadora — referência do motor exato (gabarito CP-SAT em 10/11/2026):
+#   Opção 1 (menos enfestos):   2 enfestos | desvio 34 | 6,5 pç/mapa | ótimo provado
+#   Opção 2 (+1 enfesto):       3 enfestos | desvio 12 | 6,3 pç/mapa | melhor encontrado
+#   Opção 3 (mapas mais cheios): 2 enfestos | desvio 36 | 7,5 pç/mapa | ótimo provado
+# Motor clássico (reserva): 2 enfestos desvio 39 e 3 enfestos desvio 13.
 grade = {
     'BLUES':   {'PP':41,'P':45,'M':25,'G':10},
     'BOSSA':   {'PP':19,'P':20,'M':13,'G':2},

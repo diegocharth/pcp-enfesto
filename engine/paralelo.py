@@ -129,6 +129,9 @@ def _solve_entry(tipo, kwargs, fila):
     if tipo == "single":
         from engine.solver import resolver
         sols = resolver(callback_progresso=cb, resume_out=resume, **kwargs)
+    elif tipo == "exato":
+        from engine.solver_exato import resolver_exato
+        sols = resolver_exato(callback_progresso=cb, resume_out=resume, **kwargs)
     else:
         from engine.solver_multiref import resolver_multiref
         sols = resolver_multiref(callback=cb, resume_out=resume, **kwargs)
@@ -156,10 +159,44 @@ def _executar_uma_vez(tipo, kwargs, progress_cb):
     return fut.result()
 
 
+_exatos_ativos = [0]                # calculos do motor exato em andamento
+
+
+def _executar_exato(tipo, kwargs, progress_cb):
+    """Motor exato: a coordenacao (leve) roda na thread do pedido e cada
+    varredura vai para o pool, fatiada entre os processos. Assim UM calculo usa
+    varios nucleos; o progresso sai direto por progress_cb. Com varios calculos
+    exatos ao mesmo tempo (multi-ref, outra aba), os processos sao divididos
+    entre eles, e as tarefas sao curtas (solver_exato.RODADA_S)."""
+    from engine.solver_exato import resolver_exato, _fatia_trabalho
+
+    def rodar_fatias(payloads):
+        pool = get_pool()                    # a cada rodada: o pool pode ter sido recriado
+        futuros = [pool.submit(_fatia_trabalho, p) for p in payloads]
+        return [f.result() for f in futuros]
+
+    def n_fatias():
+        with _lock:
+            ativos = max(1, _exatos_ativos[0])
+        return max(1, n_workers() // ativos)
+
+    with _lock:
+        _exatos_ativos[0] += 1
+    try:
+        resume = {}
+        sols = resolver_exato(callback_progresso=progress_cb, resume_out=resume,
+                              rodar_fatias=rodar_fatias, n_fatias=n_fatias, **kwargs)
+        return sols, resume
+    finally:
+        with _lock:
+            _exatos_ativos[0] -= 1
+
+
 def executar_solve(tipo, kwargs, progress_cb):
     """Roda um solve num worker, drenando o progresso em tempo real.
 
-    tipo: "single" (engine.solver.resolver) ou "multiref"
+    tipo: "single" (engine.solver.resolver), "exato"
+          (engine.solver_exato.resolver_exato, mesmos argumentos) ou "multiref"
     kwargs: argumentos nomeados do solver (sem callback/resume_out)
     progress_cb: recebe cada mensagem de progresso na thread chamadora
     Retorna (solucoes, resume_info). Excecoes do worker sobem para o chamador.
@@ -168,9 +205,10 @@ def executar_solve(tipo, kwargs, progress_cb):
     UMA vez de novo — senao todo calculo futuro morreria ate reiniciar o app.
     """
     from concurrent.futures.process import BrokenProcessPool
+    uma_vez = _executar_exato if tipo == "exato" else _executar_uma_vez
     try:
-        return _executar_uma_vez(tipo, kwargs, progress_cb)
+        return uma_vez(tipo, kwargs, progress_cb)
     except BrokenProcessPool:
         progress_cb("Pool de calculo quebrou (worker morto) — recriando e tentando de novo...")
         _reset_pool()
-        return _executar_uma_vez(tipo, kwargs, progress_cb)
+        return uma_vez(tipo, kwargs, progress_cb)

@@ -31,6 +31,10 @@ from engine.multiref_local import buscar_local, _HAS_NP
 if _HAS_NP:
     import numpy as _np
 
+# Revisao do motor multi-ref: entra na assinatura do cache e nos tempos
+# aprendidos. Mudar sempre que uma alteracao aqui puder mudar o resultado.
+MOTOR_ID = "multiref-2"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Folhas por cor: exato (propagação de intervalos) com fallback
@@ -151,6 +155,10 @@ def resolver_multiref(refs_data, tamanhos, config, callback=None, timeout_s=120,
 
     if resume_out is not None:
         resume_out["convergiu"] = True  # default; vira False so se cortar por timeout
+        # Motivo da parada: "impossivel" (prova, sem busca -- vale para todos os
+        # retornos antecipados abaixo), "nao_achou" (a busca terminou por conta
+        # propria), "tempo" (o orcamento acabou: inconclusivo) ou "ok".
+        resume_out["status"] = "impossivel"
 
     if n_teto < 1:
         log("Combinar este grupo nao reduz enfestos (limite < 1). Pulando.")
@@ -430,6 +438,7 @@ def resolver_multiref(refs_data, tamanhos, config, callback=None, timeout_s=120,
         while n_atual >= min_enf:
             restante = deadline_global - time.time()
             if restante < 8:
+                cortado_timeout = True     # sem tempo para descer mais: inconclusivo
                 if not melhores:
                     todos_completos = False
                 break
@@ -445,6 +454,8 @@ def resolver_multiref(refs_data, tamanhos, config, callback=None, timeout_s=120,
                 estagnacao_s=max(12.0, 0.3 * budget))
             if not achadas:
                 log(f"  Nada viavel com {n_atual} enfesto(s) — parando a descida.")
+                if time.time() >= nivel_deadline - 0.25:
+                    cortado_timeout = True  # parou pelo relogio, nao por estagnacao
                 if not melhores:
                     todos_completos = False
                 break
@@ -461,20 +472,24 @@ def resolver_multiref(refs_data, tamanhos, config, callback=None, timeout_s=120,
                 f"melhor desvio={melhores[0]['desvio_total']}pcs. Tentando {n_atual - 1}...")
             n_atual -= 1
 
+    elif not todos_completos:
+        cortado_timeout = True   # sem numpy nao ha busca local: a varredura cortada e o limite
+
     if time.time() > deadline_global:
         cortado_timeout = True
 
     if resume_out is not None:
         resume_out["convergiu"] = not cortado_timeout
+        resume_out["status"] = ("ok" if melhores
+                                else "tempo" if cortado_timeout else "nao_achou")
 
     if not melhores:
-        if todos_completos and not cortado_timeout:
-            log(f"\nSem combinacao viavel com {min_enf}..{n_teto} enfesto(s) "
-                f"(varredura completa + busca local). Combinar nao ajuda este grupo.")
+        if cortado_timeout:
+            log(f"\nTempo esgotado sem combinacao viavel (niveis {min_enf}..{n_teto}): "
+                f"resultado INCONCLUSIVO -- com mais tempo pode existir combinacao.")
         else:
-            log(f"\nSem combinacao viavel encontrada dentro do orcamento "
-                f"(niveis {min_enf}..{n_teto}; varredura + busca local). "
-                f"Combinar provavelmente nao ajuda este grupo.")
+            log(f"\nBusca terminou sem combinacao viavel (niveis {min_enf}..{n_teto}; "
+                f"varredura + busca local). Combinar provavelmente nao ajuda este grupo.")
         return []
 
     ordenar()

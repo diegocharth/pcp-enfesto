@@ -92,6 +92,25 @@ def _linha_vazia(ws, row):
 
 
 # ── Funções de análise de trade-off ──────────────────────────────────────────
+_PROVA_TXT = {"provado": "Ótimo provado", "nao_provado": "Melhor encontrado"}
+
+
+def _rotulo_opcao(sol, i):
+    """'Opção 2 — Menor desvio (+1 enfesto)' quando o motor informa o papel da
+    opção; só 'Opção 2' para planos do motor clássico."""
+    rot = (sol.get("resumo") or {}).get("rotulo")
+    return f"Opção {i} — {rot}" if rot else f"Opção {i}"
+
+
+def _prova_txt(sol):
+    """'Ótimo provado' só na opção que é a ótima do seu papel. Mapas mais cheios
+    e alternativas com busca completa recebem um selo neutro."""
+    r = sol.get("resumo") or {}
+    if r.get("prova") == "provado" and r.get("papel") in ("mapas_cheios", "alternativa"):
+        return "Busca completa"
+    return _PROVA_TXT.get(r.get("prova"))
+
+
 def _calcular_tradeoff(sols, grade, tamanhos):
     if len(sols) < 2:
         return None
@@ -101,6 +120,16 @@ def _calcular_tradeoff(sols, grade, tamanhos):
     diff_dev = d1 - d0
     diff_ppm = p1 - p0
     pct_ppm  = round((diff_ppm / p0 * 100), 1) if p0 > 0 else 0
+
+    n0, n1 = s0.get("n_mapas"), s1.get("n_mapas")
+    if n0 and n1 and n0 != n1:
+        # Numero de enfestos diferente: a escolha e do operador (menos enfestos
+        # x menor desvio); a planilha so apresenta a conta, sem recomendar.
+        msg = (f"Opção 1 usa menos enfestos ({n0}) com {d0} peças de ajuste. "
+               f"Opção 2 usa {n1} enfestos e ajusta {d1} peças. "
+               f"Escolha conforme a prioridade: menos enfestos ou menor desvio.")
+        return {"msg": msg, "nivel": "info", "d0": d0, "d1": d1, "p0": p0, "p1": p1,
+                "diff_dev": diff_dev, "pct_ppm": pct_ppm}
 
     if d0 == 0 and d1 == 0:
         msg = f"Ambas as opções sem ajuste de grade. Prefira Opção {1 if p0 >= p1 else 2} (maior eficiência de encaixe)."
@@ -167,8 +196,9 @@ def _resumo_parametros_txt(config):
 def _aba_resumo(wb, solucoes, grade, tamanhos, referencia, config):
     ws = wb.create_sheet("Resumo")
     ws.column_dimensions["A"].width = 32
+    tem_papel = any((s.get("resumo") or {}).get("rotulo") for s in solucoes)
     for i in range(2, 2 + len(solucoes)):
-        ws.column_dimensions[get_column_letter(i)].width = 22
+        ws.column_dimensions[get_column_letter(i)].width = 38 if tem_papel else 22
 
     ts = datetime.now().strftime("%d/%m/%Y %H:%M")
     n  = len(solucoes)
@@ -197,7 +227,7 @@ def _aba_resumo(wb, solucoes, grade, tamanhos, referencia, config):
     # Headers das opções
     _cel(ws, row, 1, "Métrica", negrito=True, fundo=C_CINZA_HDR, tamanho=10)
     for i, s in enumerate(solucoes, 2):
-        _cel(ws, row, i, f"Opção {i-1}", negrito=True, fundo=C_AZUL_MED,
+        _cel(ws, row, i, _rotulo_opcao(s, i - 1), negrito=True, fundo=C_AZUL_MED,
              cor_txt=C_BRANCO, alinha="center", tamanho=10)
     ws.row_dimensions[row].height = 18
     row += 1
@@ -217,6 +247,11 @@ def _aba_resumo(wb, solucoes, grade, tamanhos, referencia, config):
         ("Média de peças por mapa",   [s["resumo"]["media_pecas_mapa"] for s in solucoes]),
         ("Comprimento total (m)",     [s["resumo"]["comprimento_total"] for s in solucoes]),
     ]
+    if any(_prova_txt(s) for s in solucoes):
+        metricas.append(("Busca", [_prova_txt(s) or "—" for s in solucoes]))
+    if any(s["resumo"].get("comparacao") for s in solucoes):
+        metricas.append(("Em relação à Opção 1",
+                         [s["resumo"].get("comparacao") or "—" for s in solucoes]))
     for label, vals in metricas:
         linha_metrica(label, vals)
 
@@ -282,7 +317,7 @@ def _aba_resumo(wb, solucoes, grade, tamanhos, referencia, config):
     # Resumo dos mapas por opção
     row = _linha_titulo_secao(ws, row, "ESTRUTURA DOS ENFESTOS POR OPÇÃO", ncols + 1)
     for i, sol in enumerate(solucoes, 1):
-        _cel(ws, row, 1, f"Opção {i}:", negrito=True, fundo=C_CINZA_HDR)
+        _cel(ws, row, 1, _rotulo_opcao(sol, i) + ":", negrito=True, fundo=C_CINZA_HDR)
         ws.row_dimensions[row].height = 16
         row += 1
         for mi, mapa in enumerate(sol["mapas"]):
@@ -325,6 +360,8 @@ def _aba_plano(wb, sol, idx, grade, tamanhos, referencia, config):
     ws.merge_cells(f"A1:{get_column_letter(ncols)}1")
     c = ws["A1"]
     c.value = f"PLANO DE CORTE — {referencia.upper()} — OPÇÃO {idx}"
+    if r.get("rotulo"):
+        c.value += f" — {r['rotulo'].upper()}"
     c.font  = Font(name="Calibri", size=13, bold=True, color=C_BRANCO)
     c.fill  = PatternFill("solid", fgColor=C_AZUL_ESC)
     c.alignment = Alignment(horizontal="left", vertical="center")
@@ -334,6 +371,8 @@ def _aba_plano(wb, sol, idx, grade, tamanhos, referencia, config):
     ws.merge_cells(f"A2:{get_column_letter(ncols)}2")
     dev = r.get("desvio_total", 0)
     kpi = f"Enfestos: {r['n_mapas']}  |  Total folhas: {r['total_folhas']}  |  Ajuste de grade: {'Sem ajuste ✓' if dev == 0 else str(dev)+' peças'}  |  Média peças/mapa: {r['media_pecas_mapa']}  |  Comp. total: {r['comprimento_total']}m"
+    if _prova_txt(sol):
+        kpi += f"  |  Busca: {_prova_txt(sol)}"
     c2 = ws["A2"]
     c2.value = kpi
     c2.font  = Font(name="Calibri", size=9)

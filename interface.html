@@ -128,6 +128,7 @@ input:focus,select:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 2p
 .prog-etapa.atual{background:var(--acl);color:var(--ac);font-weight:600;border-color:#aed6f1}
 .prog-etapa.ok{background:var(--okb);color:var(--ok);border-color:var(--ok)}
 .prog-etapa.erro{background:var(--erb);color:var(--er);border-color:var(--er)}
+.prog-etapa.aviso{background:var(--wnb);color:var(--wn);border-color:var(--wn)}
 </style>
 </head>
 <body>
@@ -157,17 +158,17 @@ input:focus,select:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 2p
     <div class="field">
       <label>Opções a gerar</label>
       <select id="num_opcoes">
-        <option value="1">1 opção (só a ótima)</option>
-        <option value="2" selected>2 opções (ótima + alternativa)</option>
-        <option value="3">3 opções</option>
+        <option value="1">S&oacute; a de menos enfestos</option>
+        <option value="2" selected>Padr&atilde;o (com alternativas)</option>
+        <option value="3">Padr&atilde;o + 1 alternativa extra</option>
       </select>
-      <div class="hint">Gera opções distintas para simular no Audaces.</div>
+      <div class="hint">Padr&atilde;o mostra: menos enfestos; 1 enfesto a mais com desvio menor; mapas mais cheios (quando existirem).</div>
     </div>
   </div>
   <div class="field" style="max-width:300px">
     <label>Timeout da busca (segundos)</label>
     <input type="number" id="timeout" value="180" min="30" max="180" step="30">
-    <div class="hint">Tempo por referência individual. Agrupamentos usam 240s × n_refs (ex: 3 refs = 720s, 2 refs = 480s).</div>
+    <div class="hint">Tempo m&aacute;ximo por refer&ecirc;ncia (o c&aacute;lculo para antes quando termina). Agrupamentos: at&eacute; 60 s por refer&ecirc;ncia (m&aacute;x. 150 s) na primeira vez; depois, o dobro do tempo aprendido.</div>
   </div>
 </div>
 
@@ -962,6 +963,40 @@ function montarGrade() {
   return {grade, referencia:refs.map((r,i)=>r.nome||`Ref ${i+1}`).join(' + ')};
 }
 
+// Selo de prova de uma opcao. "Otimo provado" so na opcao que e a otima do seu
+// papel (menos enfestos; +1 enfesto com menor desvio). Mapas cheios e
+// alternativas nao sao as otimas: busca completa, mas selo neutro.
+function _seloProva(r){
+  if(!r || !r.prova) return null;
+  if(r.prova==='provado'){
+    if(r.papel==='mapas_cheios' || r.papel==='alternativa')
+      return {texto:'Busca completa', cor:'var(--tx2)'};
+    return {texto:'\u2705 \u00d3timo provado', cor:'var(--ok)'};
+  }
+  return {texto:'Melhor encontrado (busca n\u00e3o conclu\u00edda)', cor:'var(--wn)'};
+}
+
+// Calculo individual (dentro do multi-ref) cujo resultado depende do tempo ou
+// falhou: o agrupamento final pode nao ser o melhor possivel.
+function _individualInconclusivo(respOk, d){
+  if(!respOk) return true;
+  if(d && d.erro) return d.status==='tempo' || d.status==='erro';
+  return !!(d && d.cortado);
+}
+
+// Traduz o motivo de um agrupamento sem solucao num aviso para o operador.
+// status do servidor: impossivel (prova) | nao_achou (busca concluida) | tempo.
+function _avisoGrupoSemSolucao(respOk, d){
+  var st = (d && d.status) || '';
+  if(!respOk || st==='erro')
+    return {msg:'ERRO no calculo (detalhes no log do servidor) - resultado inconclusivo', etiqueta:'Erro', classe:'erro', inconclusivo:true};
+  if(st==='impossivel')
+    return {msg:'combinar e impossivel com menos enfestos (provado pela capacidade de folhas)', etiqueta:'impossivel', classe:'ok', inconclusivo:false};
+  if(st==='tempo')
+    return {msg:'tempo esgotado sem achar combinacao - resultado inconclusivo', etiqueta:'tempo esgotado', classe:'aviso', inconclusivo:true};
+  return {msg:'busca concluida sem achar combinacao', etiqueta:'sem ganho', classe:'ok', inconclusivo:false};
+}
+
 async function calcular(){
   const consumos = refs.map(r => r.consumo || parseFloat(document.getElementById('consumo').value) || 1.0645);
   const mesa       = parseFloat(document.getElementById('mesa').value);
@@ -1015,13 +1050,15 @@ async function calcular(){
     // Sem historico, cai numa estimativa enxuta -- so para exibir. O TETO de tempo
     // (timeout) permanece generoso ate haver dados, para nunca cortar um bom solve
     // antes da hora; depois de aprender, aperta para ~3x a mediana medida.
-    let _TL = {};
-    try { _TL = (((await (await fetch('/aprendizado')).json()) || {}).tempos) || {}; } catch(e) {}
+    let _TL = {}, _SUF_I = '', _SUF_G = '';   // tempos aprendidos (chaves levam a revisao do motor)
+    try { const _ap = (await (await fetch('/aprendizado')).json()) || {};
+          _TL = _ap.tempos || {}; _SUF_I = _ap.sufixo_indiv || ''; _SUF_G = _ap.sufixo_grupo || ''; } catch(e) {}
+    let _nInconcl = 0;                        // calculos cortados pelo tempo ou com erro
 
     const nCoresRef   = ri => cores.filter(c => tamanhos.some(t => (refs[ri].grade[c] && refs[ri].grade[c][t] || 0) > 0)).length;
     const nCoresGrupo = g  => g.reduce((s,ri)=>s+nCoresRef(ri),0);
-    const keyGrupo    = g  => 'grupo:'+g.length+'r:'+nCoresGrupo(g)+'c';
-    const keyIndiv    = ri => 'indiv:'+nCoresRef(ri)+'c';
+    const keyGrupo    = g  => 'grupo:'+g.length+'r:'+nCoresGrupo(g)+'c'+_SUF_G;
+    const keyIndiv    = ri => 'indiv:'+nCoresRef(ri)+'c'+_SUF_I;
 
     // ETA (segundos) -- aprendido quando ha dados; senao formula enxuta (display)
     const etaGrupo = g  => _TL[keyGrupo(g)] != null ? _TL[keyGrupo(g)] : (6 + 5*nCoresGrupo(g));
@@ -1029,7 +1066,9 @@ async function calcular(){
     // TETO de tempo (timeout) -- v2.12: o solver novo desiste sozinho por
     // estagnacao, entao o teto pode ser mais enxuto (2x mediana, max 90s/ref)
     const tGrupoCalc = g  => { const v=_TL[keyGrupo(g)]; return v!=null ? Math.min(90*g.length, Math.max(30, Math.round(v*2))) : Math.min(150, 60*g.length); };
-    const tIndivCalc = ri => { const v=_TL[keyIndiv(ri)]; return v!=null ? Math.min(timeout, Math.max(20, Math.round(v*3))) : timeout; };
+    // Individual: sempre o timeout da tela. O motor exato para sozinho quando termina
+    // (ou prova); um teto aprendido de calculos rapidos cortaria os calculos pesados.
+    const tIndivCalc = ri => timeout;
 
     _calculoCancelado = false;
     _abortCtrl = new AbortController();
@@ -1124,13 +1163,14 @@ async function calcular(){
           body:JSON.stringify({...baseParams,grade:gradeR,referencia:label,consumo:consR,timeout:tI,job_id:jid}),
           signal:_abortCtrl.signal});
         const d=await resp.json(); await _drainJobMulti(jid,label);
-        if(d.erro){ L('  '+label+': sem solucao'); cache[key]={erro:d.erro}; _setEtapa(`i${ri}`,'Sem sol.','erro'); }
+        if(!resp.ok){ L('  '+label+': ERRO no calculo (detalhes no log do servidor)'); cache[key]={erro:(d&&d.erro)||'erro'}; _setEtapa(`i${ri}`,'Erro','erro'); _nInconcl++; }
+        else if(d.erro){ const _tp=d.status==='tempo'; L('  '+label+': '+(_tp?'tempo esgotado sem solucao - resultado inconclusivo':'sem solucao')); cache[key]={erro:d.erro}; _setEtapa(`i${ri}`,_tp?'tempo esgotado':'Sem sol.',_tp?'aviso':'erro'); if(_individualInconclusivo(resp.ok,d)) _nInconcl++; }
         else { const n=d.solucoes[0].resumo.n_mapas; indiv[ri]=n;
           const tg=d.cache?'cache':Math.round(d.tempo_s||0)+'s';
-          L('  '+label+': OK '+n+' enfesto(s) ('+tg+')'); cache[key]={nEnfestos:n,tipo:'single',data:d}; _setEtapa(`i${ri}`,n+' enf.','ok'); }
+          L('  '+label+': OK '+n+' enfesto(s) ('+tg+')'); if(_individualInconclusivo(resp.ok,d)){ L('    (calculo cortado pelo tempo: pode existir plano com menos enfestos)'); _nInconcl++; } cache[key]={nEnfestos:n,tipo:'single',data:d}; _setEtapa(`i${ri}`,n+' enf.','ok'); }
       }catch(e){
         if(e.name==='AbortError'){ cache[key]={erro:'Cancelado'}; _setEtapa(`i${ri}`,'Cancelado','erro'); }
-        else { L('  '+label+': erro '+e.message); cache[key]={erro:e.message}; _setEtapa(`i${ri}`,'Erro','erro'); }
+        else { L('  '+label+': erro '+e.message); cache[key]={erro:e.message}; _setEtapa(`i${ri}`,'Erro','erro'); _nInconcl++; }
       }finally{ activeJobs.delete(jid); }
     }
     try{
@@ -1185,16 +1225,16 @@ async function calcular(){
           body:JSON.stringify({...baseParams,refs:refsG,referencia:rG,timeout:tG,n_mapas_max:cap,job_id:jid}),
           signal:_abortCtrl.signal});
         const d=await resp.json(); await _drainJobMulti(jid,lbl);
-        if(d.erro){ L('  '+rG+': combinar nao ajuda'); cache[key]={erro:d.erro}; _setEtapa(`g${key}`,'sem ganho','ok'); }
+        if(!resp.ok || d.erro){ const _av=_avisoGrupoSemSolucao(resp.ok, d); L('  '+rG+': '+_av.msg); cache[key]={erro:(d&&d.erro)||'erro'}; _setEtapa(`g${key}`,_av.etiqueta,_av.classe); if(_av.inconclusivo) _nInconcl++; }
         else { const n=d.solucoes[0].resumo.n_mapas;
           const tg=d.cache?'cache':Math.round(d.tempo_s||0)+'s';
-          L('  '+rG+': OK '+n+' enfesto(s) combinado(s) ('+tg+')'); cache[key]={nEnfestos:n,tipo:'multiref',data:d}; _setEtapa(`g${key}`,n+' enf.','ok');
+          L('  '+rG+': OK '+n+' enfesto(s) combinado(s) ('+tg+')'); if(d.convergiu===false){ L('    (busca cortada pelo tempo: pode existir combinacao com menos enfestos)'); _nInconcl++; } cache[key]={nEnfestos:n,tipo:'multiref',data:d}; _setEtapa(`g${key}`,n+' enf.','ok');
           const novo=_avaliarParticoes()[0]?.total;
           if(novo!=null && novo<bestTotal){ bestTotal=novo; L('  -> melhor particao agora: '+bestTotal+' enfestos'); }
         }
       }catch(e){
         if(e.name==='AbortError'){ cache[key]={erro:'Cancelado'}; _setEtapa(`g${key}`,'Cancelado','erro'); }
-        else { L('  '+rG+': erro '+e.message); cache[key]={erro:e.message}; _setEtapa(`g${key}`,'Erro','erro'); }
+        else { L('  '+rG+': erro '+e.message); cache[key]={erro:e.message}; _setEtapa(`g${key}`,'Erro','erro'); _nInconcl++; }
       }finally{ activeJobs.delete(jid); }
     }
     try{
@@ -1224,6 +1264,7 @@ async function calcular(){
         :'['+g.idxs.map(i=>refs[i].nome||'Ref '+(i+1)).join('+')+']'
       ).join(' + ');
       L(`\nMELHOR${foiCancelado?' (parcial)':''}: ${descBest} = ${best.total} enfestos`);
+      if(_nInconcl>0) L('ATENCAO: '+_nInconcl+' calculo(s) inconclusivo(s) (tempo esgotado ou erro). O plano acima e o melhor ENCONTRADO; pode existir agrupamento com menos enfestos.');
       _setEtapa('fim',best.total+' enf.'+(foiCancelado?' (parcial)':''),foiCancelado?'erro':'ok');
       _planoImportado=null;   // resultado novo assume o lugar do plano importado
       window._resultadoMulti={grupos:best.grupos};   // habilita a Alocacao de Rolos
@@ -1416,10 +1457,17 @@ function _setEtapa(id, texto, status) {
 function renderResultado(data){
   document.getElementById('rb').style.display='block';
   _clearStaleCalculo();
+  // Resultado novo: volta para a Opcao 1 e descarta comprimentos do Audaces
+  // digitados para os mapas do resultado anterior (ou de outra opcao).
+  window._opAtiva=0;
+  if(typeof _planoImportado==='undefined' || !_planoImportado){
+    window._compRealAudaces={};
+    try{ _renderMapasAudaces(); }catch(e){}
+  }
   const sols=data.solucoes;
   document.getElementById('otabs').innerHTML=sols.map((s,i)=>
     `<div class="otab ${i===0?'at':''}" onclick="atOpt(${i})" id="ot_${i}">
-      Opção ${i+1} — ${s.resumo.n_mapas} enfesto(s)
+      Opção ${i+1} — ${s.resumo.n_mapas} enfesto(s)${s.resumo.rotulo?' \u00b7 '+s.resumo.rotulo:''}
     </div>`
   ).join('');
   const cmp=sols.length>1?renderCmp(sols,data.tamanhos,data.grade,data.limites):'';
@@ -1431,6 +1479,19 @@ function renderResultado(data){
 function atOpt(i){
   document.querySelectorAll('.otab').forEach((t,j)=>t.classList.toggle('at',j===i));
   document.querySelectorAll('.opan').forEach((p,j)=>p.classList.toggle('at',j===i));
+  // A alocacao de rolos usa a opcao SELECIONADA (as opcoes podem ter numero de
+  // enfestos diferente). Trocar de opcao torna a alocacao anterior obsoleta e
+  // descarta os comprimentos reais do Audaces, que valem para os mapas da outra.
+  if((window._opAtiva||0)!==i){
+    window._opAtiva=i;
+    // Plano importado (.plano.json) nao depende da aba: alocacao e Audaces ficam.
+    if(typeof _planoImportado==='undefined' || !_planoImportado){
+      window._compRealAudaces={};
+      try{ _esconderResultadoAlocacao(); }catch(e){}
+      try{ _renderMapasAudaces(); }catch(e){}
+    }
+    try{ _renderPlanoAlocacaoInfo(); }catch(e){}
+  }
 }
 
 function _renderRefCard(r, ri, labelExtra){
@@ -1551,6 +1612,8 @@ async function exportarRef(ri){
 
 function renderResultadoGrupos(validos){
   window._multiGrupoValidos = validos;
+  window._compRealAudaces = {};       // comprimentos do Audaces eram de outro plano
+  try{ _renderMapasAudaces(); }catch(e){}
   const best = validos[0];
   let html = '';
 
@@ -1675,6 +1738,15 @@ function renderOp(sol,tams,grade,lims,num,data_consumo){
     <div class="kpi"><span class="kpiv" ${devCls}>${devLabel}</span><span class="kpil">Ajuste de grade</span></div>
     <div class="kpi"><span class="kpiv">${r.media_pecas_mapa} pç</span><span class="kpil">Média peças/mapa</span></div>
   </div>`;
+  // Motor exato: papel da opcao, comparacao com a Opcao 1 e selo de prova.
+  if(r.rotulo||r.prova){
+    const _sp=_seloProva(r);
+    const _pv=_sp ? '<span style="color:'+_sp.cor+';font-weight:600">'+_sp.texto+'</span>' : '';
+    h+='<div style="font-size:11px;color:var(--tx2);margin:-2px 0 10px;line-height:1.7">'+
+       (r.rotulo?'<b style="color:var(--ac)">'+r.rotulo+'</b>':'')+
+       (r.comparacao?' \u00b7 em rela\u00e7\u00e3o \u00e0 Op\u00e7\u00e3o 1: <b>'+r.comparacao+'</b>':'')+
+       (_pv?' \u00b7 '+_pv:'')+'</div>';
+  }
 
   mp.forEach((mapa,mi)=>{
     const nP=tams.reduce((s,t)=>s+(mapa[t]||0),0);
@@ -1806,7 +1878,9 @@ function renderCmp(sols,tams,grade,lims){
     const diffDev=m1.dev-m0.dev,diffPpm=m1.ppm-m0.ppm;
     const pctPpm=m0.ppm>0?((diffPpm/m0.ppm)*100).toFixed(1):0;
     let msg='';
-    if(m0.dev===0&&m1.dev===0)
+    if(m0.nEnf!==m1.nEnf)
+      msg='Op\u00e7\u00e3o 1 usa <b>menos enfestos</b> ('+m0.nEnf+') com '+m0.dev+' pe\u00e7as de ajuste. Op\u00e7\u00e3o 2 usa '+m1.nEnf+' enfestos e ajusta <b>'+m1.dev+' pe\u00e7as</b>. Escolha conforme a prioridade: menos enfestos ou menor desvio.';
+    else if(m0.dev===0&&m1.dev===0)
       msg='<span style="color:var(--ok);font-weight:600">Ambas sem ajuste de grade.</span> Prefira a de maior eficiência de encaixe (Opção '+(m0.ppm>=m1.ppm?1:2)+').';
     else if(m0.dev===0)
       msg='<span style="color:var(--ok);font-weight:600">Opção 1 sem ajuste de grade.</span> Opção 2 ajusta '+m1.dev+' peças'+(parseFloat(pctPpm)>0?' e ganha +'+pctPpm+'% de peças/mapa':' sem ganho de encaixe adicional')+'.';
@@ -1824,7 +1898,7 @@ function renderCmp(sols,tams,grade,lims){
     sols.map((s,i)=>{
       const m=metricas[i];
       const dc=m.dev===0?'style="color:var(--ok)"':m.dev<=15?'style="color:var(--wn)"':'style="color:var(--er)"';
-      return '<div style="background:var(--sf2);border-radius:var(--r);padding:9px 12px;border:1px solid var(--bd)"><div style="font-size:11px;font-weight:600;color:var(--ac);margin-bottom:5px">Opção '+(i+1)+'</div><div style="font-size:11px;line-height:1.8">Enfestos: <b>'+m.nEnf+'</b><br>Peças/mapa: <b>'+m.ppm+'</b><br>Ajuste grade: <b '+dc+'>'+(m.dev===0?'✓ Nenhum':m.dev+' peças')+'</b></div></div>';
+      return '<div style="background:var(--sf2);border-radius:var(--r);padding:9px 12px;border:1px solid var(--bd)"><div style="font-size:11px;font-weight:600;color:var(--ac);margin-bottom:5px">Opção '+(i+1)+(s.resumo.rotulo?' \u2014 '+s.resumo.rotulo:'')+'</div><div style="font-size:11px;line-height:1.8">Enfestos: <b>'+m.nEnf+'</b><br>Peças/mapa: <b>'+m.ppm+'</b><br>Ajuste grade: <b '+dc+'>'+(m.dev===0?'✓ Nenhum':m.dev+' peças')+'</b></div></div>';
     }).join('')+'</div>';
   let h='<div style="font-size:12px;font-weight:600;color:var(--ac);margin-bottom:8px">📊 Comparativo de Ajustes de Grade</div>'+
     tradeoffHtml+resumoHtml+
@@ -2324,7 +2398,7 @@ function _montarPlanoParaAlocacao() {
   // Single-ref.
   if (typeof resultado !== 'undefined' && resultado && resultado.solucoes && resultado.solucoes.length) {
     var cons = (resultado.config && resultado.config.consumo_peca_m) || 1.0645;
-    addGrupoSingle(resultado.solucoes[0], cons);
+    addGrupoSingle(resultado.solucoes[window._opAtiva||0] || resultado.solucoes[0], cons);
     return {mapas:mapas, camadas:camadas, consumo_peca:cons};
   }
   return null;
@@ -2659,6 +2733,18 @@ async function exportarAlocacao() {
 // PLANO DE CORTE PORTATIL (.plano.json) v2.13
 // ============================================================
 
+// Qual opcao do single-ref esta sendo usada (alocacao, plano salvo).
+// sempre=false: vazio para a Opcao 1 (o nome do plano salvo nao muda).
+function _sufixoOpcao(sempre) {
+  if (window._resultadoMulti || typeof resultado === 'undefined' || !resultado
+      || !resultado.solucoes || resultado.solucoes.length < 2) return '';
+  var io = window._opAtiva || 0;
+  if (!io && !sempre) return '';
+  var so = resultado.solucoes[io] || resultado.solucoes[0];
+  return ' - Op\u00e7\u00e3o ' + (io + 1) + (so.resumo && so.resumo.rotulo ? ': ' + so.resumo.rotulo : '')
+    + ' (' + so.resumo.n_mapas + ' enfesto(s))';
+}
+
 function _renderPlanoAlocacaoInfo() {
   var el = document.getElementById('aloc-plano-info');
   var btn = document.getElementById('aloc-plano-descartar');
@@ -2670,7 +2756,9 @@ function _renderPlanoAlocacaoInfo() {
       + (_planoImportado.criado_em ? ', calculado em ' + _planoImportado.criado_em : '') + ')';
     if (btn) btn.style.display = '';
   } else if (_montarPlanoParaAlocacao()) {
-    el.textContent = 'usando o plano calculado acima (' + _getReferencia() + ')';
+    el.textContent = 'usando o plano calculado acima (' + _getReferencia() + ')'
+      + (window._resultadoMulti ? ' - no multi-ref vale a Op\u00e7\u00e3o 1 de cada grupo'
+                                : _sufixoOpcao(true));
     if (btn) btn.style.display = 'none';
   } else {
     el.textContent = 'nenhum (calcule acima ou importe um plano salvo)';
@@ -2687,7 +2775,7 @@ async function _autoSalvarPlano() {
     if (_planoImportado) return;
     var plano = _montarPlanoParaAlocacao();
     if (!plano) return;
-    var assin = _getReferencia() + '|' + JSON.stringify(plano.camadas) + '|'
+    var assin = _getReferencia() + _sufixoOpcao() + '|' + JSON.stringify(plano.camadas) + '|'
       + JSON.stringify((plano.mapas || []).map(function(m) { return [m.id, m.comp_camada_m, m.n_pecas]; }));
     if (assin === _assinaturaPlanoSalvo) return;
     var nome = await salvarPlanoAtual(true);
@@ -2701,7 +2789,7 @@ async function salvarPlanoAtual(silencioso) {
   if (!plano) { if (!silencioso && st) st.textContent = 'Calcule um plano primeiro.'; return null; }
   try {
     var resp = await fetch('/salvar_plano', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({plano: plano, referencia: _getReferencia(),
+      body: JSON.stringify({plano: plano, referencia: _getReferencia() + _sufixoOpcao(),
                             origem: (window._resultadoMulti ? 'multiref' : 'single')})});
     var res = await resp.json();
     if (res.erro) { if (!silencioso && st) st.textContent = 'Erro: ' + res.erro; return null; }

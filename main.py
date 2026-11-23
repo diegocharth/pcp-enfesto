@@ -163,8 +163,9 @@ def _importar():
     global carregar_mapa_cores, salvar_mapa_cores_fn
     global checar_atualizacao_fn, sinalizar_update_fn
     global CachePlanos, assinatura_calc
-    global paralelo
+    global paralelo, MOTOR_EXATO_ID, MOTOR_MULTIREF_ID
     from engine import paralelo
+    from engine.solver_exato        import MOTOR_ID as MOTOR_EXATO_ID
     from engine.solver              import resolver
     from engine.cache_planos        import CachePlanos, assinatura as assinatura_calc
     from engine.tolerancia          import calcular_limites_grade
@@ -174,6 +175,7 @@ def _importar():
     from exportar.upload_parser     import parse_arquivo
     from exportar.upload_parser_img import extrair_grade_de_imagem
     from engine.solver_multiref     import resolver_multiref
+    from engine.solver_multiref     import MOTOR_ID as MOTOR_MULTIREF_ID
     from engine.alocador_rolos      import alocar_rolos as alocar_rolos_fn
     from engine.import_rolos.registry   import obter_fonte as obter_fonte_rolos
     global aplicar_mapa_registros_fn
@@ -198,14 +200,23 @@ _importar()
 _CACHE = CachePlanos(CACHE_FILE, TEMPOS_FILE)
 
 
-def _bucket_single(grade):
-    """Chave de complexidade para aprender o tempo de um calculo de 1 referencia."""
-    return f"indiv:{len(grade)}c"
+def _bucket_single(grade, motor=None):
+    """Chave de complexidade para aprender o tempo de um calculo de 1 referencia.
+    Leva a revisao do motor (o classico fica sem sufixo): tempos de um motor
+    nao servem de teto para outro."""
+    return f"indiv:{len(grade)}c" + (f":{motor}" if motor else "")
 
 
 def _bucket_grupo(n_refs, n_cores):
     """Chave de complexidade para aprender o tempo de um calculo combinado."""
-    return f"grupo:{n_refs}r:{n_cores}c"
+    return f"grupo:{n_refs}r:{n_cores}c:{MOTOR_MULTIREF_ID}"
+
+
+def _sufixos_tempos(cfg):
+    """Sufixos que a tela soma as chaves de tempo aprendido (ver _bucket_*)."""
+    exato = str(cfg.get("motor_single", "exato")).strip().lower() != "classico"
+    return {"sufixo_indiv": f":{MOTOR_EXATO_ID}" if exato else "",
+            "sufixo_grupo": f":{MOTOR_MULTIREF_ID}"}
 
 
 def _ensure_dados():
@@ -417,7 +428,7 @@ class Handler(BaseHTTPRequestHandler):
             # Sob _io_lock: registrar_tempo pode inserir chaves em paralelo (v2.12).
             with _io_lock:
                 est = _CACHE.estimativas()
-            self._send(200, {"tempos": est})
+            self._send(200, {"tempos": est, **_sufixos_tempos(carregar_config())})
         elif path == "/paralelo":
             # Quantos solves simultaneos o backend suporta (p/ a UI dosar os fetches).
             self._send(200, {"workers": paralelo.n_workers()})
@@ -464,7 +475,8 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             import traceback
             _log.error("Erro em %s: %s\n%s", path, e, traceback.format_exc())
-            self._send(500, {"erro": "Erro interno no servidor. Detalhes no log (dados/logs/pcp.log)."})
+            self._send(500, {"erro": "Erro interno no servidor. Detalhes no log (dados/logs/pcp.log).",
+                             "status": "erro"})
 
     def _calcular(self, p):
         cfg = carregar_config()
@@ -518,13 +530,23 @@ class Handler(BaseHTTPRequestHandler):
         # Assinatura = definicao do problema (sem timeout, que so muda o orcamento
         # de busca). So usa cache em calculo fresco (nao em retomada via "Continuar").
         usa_cache = (min_n_mapas == 1 and skip_combos == 0)
-        sig = assinatura_calc({
+        # Motor do single-ref: "exato" (padrao) ou "classico" (config.json ->
+        # "motor_single"). O exato entra na assinatura do cache para que planos
+        # calculados pelo motor antigo nao sejam devolvidos no lugar dos novos.
+        usa_exato = str(cfg.get("motor_single", "exato")).strip().lower() != "classico"
+        _sig_payload = {
             "tipo": "single", "grade": grade, "consumo": cfg["consumo_peca_m"],
             "mesa": cfg["mesa_comprimento_m"], "max_folhas": cfg["limite_folhas_padrao"],
             "num_opcoes": cfg["num_opcoes_saida"], "tol_abs": cfg["desvio_absoluto_padrao"],
             "tol_pct": cfg["desvio_percentual_padrao"], "criterio": cfg["criterio_combinacao"],
             "tamanhos": tamanhos, "regras": regras,
-        })
+        }
+        if usa_exato:
+            # O resultado do motor exato depende do tempo (prova, opcao de +1
+            # enfesto): mais tempo pode melhorar, entao o timeout faz parte da chave.
+            _sig_payload["motor"] = MOTOR_EXATO_ID
+            _sig_payload["timeout"] = timeout
+        sig = assinatura_calc(_sig_payload)
         if usa_cache:
             hit = _CACHE.obter(sig)
             if hit is not None:
@@ -549,24 +571,45 @@ class Handler(BaseHTTPRequestHandler):
         # o GIL impedia paralelismo com threads). Varios calculos podem rodar ao
         # mesmo tempo — um por worker do pool.
         _t0 = time.time()
-        solucoes, _resume = paralelo.executar_solve("single", dict(
+        _kw_solve = dict(
             grade=grade, tamanhos=tamanhos, limites=limites, config=cfg,
             timeout_s=timeout, min_n_mapas=min_n_mapas, skip_combos=skip_combos,
-            historicos=historicos), cb)
+            historicos=historicos)
+        _caiu_no_classico = False
+        if usa_exato:
+            try:
+                solucoes, _resume = paralelo.executar_solve("exato", _kw_solve, cb)
+            except Exception as e:
+                # O operador nunca fica sem plano: qualquer falha do motor novo
+                # cai no motor classico (e o resultado nao e cacheado como exato).
+                import traceback
+                _log.error("Motor exato falhou em /calcular (%s); usando o classico.\n%s",
+                           e, traceback.format_exc())
+                cb("Motor exato indisponivel neste calculo; usando o motor classico.")
+                _caiu_no_classico = True
+                solucoes, _resume = paralelo.executar_solve("single", _kw_solve, cb)
+        else:
+            solucoes, _resume = paralelo.executar_solve("single", _kw_solve, cb)
         r_niveis = _resume.get('niveis_esgotados', [])
         r_prox   = _resume.get('proximo_n', 1)
         r_skip   = _resume.get('skip_combos', 0)
+        # cortado = o prazo total interrompeu a busca: o resultado depende do tempo
+        # (inconclusivo); nao entra no cache nem no tempo aprendido.
+        _cortado = bool(_resume.get('cortado')) or r_skip > 0
         _elapsed = time.time() - _t0
         # Aprende o tempo real SO de buscas que terminaram (r_skip==0 = nao cortada
         # por timeout). Tempo de busca cortada enviesaria a mediana para baixo e o
         # teto adaptativo passaria a cortar buscas boas antes da hora.
         if usa_cache and r_skip == 0:
             with _io_lock:
-                _CACHE.registrar_tempo(_bucket_single(grade), _elapsed)
+                _CACHE.registrar_tempo(_bucket_single(grade, _resume.get("motor")), _elapsed)
 
         if not solucoes:
             self._send(200, {
-                "erro": "Nenhuma solução encontrada. Tente aumentar tolerância ou timeout.",
+                "erro": ("Tempo esgotado sem solução: resultado inconclusivo. Tente aumentar o timeout."
+                         if _cortado else
+                         "Nenhuma solução encontrada. Tente aumentar tolerância ou timeout."),
+                "status": "tempo" if _cortado else "nao_achou",
                 "niveis_esgotados": r_niveis,
                 "proximo_n": r_prox,
                 "skip_combos": r_skip,
@@ -600,11 +643,14 @@ class Handler(BaseHTTPRequestHandler):
             "config"    : cfg,
             "versao"    : VERSION,
             "regras_especiais": regras,
+            "motor"     : _resume.get("motor", "classico"),
+            "status"    : "ok",
+            "cortado"   : _cortado,
         }
         # Guarda no cache apenas se a busca foi completa (r_skip==0 = nao cortada
         # por timeout no meio de um nivel). Resultado parcial nunca e cacheado,
         # para que "Continuar" com mais tempo possa melhora-lo.
-        if usa_cache and r_skip == 0:
+        if usa_cache and r_skip == 0 and not _caiu_no_classico:
             with _io_lock:
                 _CACHE.guardar(sig, resp, _elapsed)
         self._send(200, {**resp, "referencia": referencia, "log": logs, "tempo_s": round(_elapsed, 2)})
@@ -700,6 +746,7 @@ class Handler(BaseHTTPRequestHandler):
             "num_opcoes": cfg["num_opcoes_saida"], "tol_abs": cfg["desvio_absoluto_padrao"],
             "tol_pct": cfg["desvio_percentual_padrao"], "criterio": cfg["criterio_combinacao"],
             "tamanhos": tamanhos, "regras": regras, "n_mapas_max": n_mapas_max,
+            "motor": MOTOR_MULTIREF_ID,
         })
         hit = _CACHE.obter(sig)
         if hit is not None:
@@ -723,14 +770,23 @@ class Handler(BaseHTTPRequestHandler):
         # Sinal exato do solver: a busca convergiu ou foi cortada pelo timeout?
         # (mesma estrategia do single-ref, que usa r_skip==0 -- evita vies na ETA)
         _convergiu = _resume_g.get('convergiu', True)
+        # Motivo exato da parada: "ok" | "impossivel" (prova) | "nao_achou"
+        # (busca concluida) | "tempo" (orcamento esgotado: inconclusivo).
+        _status = _resume_g.get('status') or ("ok" if solucoes else "nao_achou")
         _elapsed = time.time() - _t0
-        if _convergiu:
+        # So aprende o tempo de busca que terminou por conta propria; a prova de
+        # capacidade leva milissegundos e puxaria a mediana (e os tetos) para baixo.
+        if _convergiu and _status != "impossivel":
             with _io_lock:
                 _CACHE.registrar_tempo(_bucket_grupo(len(refs_data), n_cores), _elapsed)
 
         if not solucoes:
-            self._send(200, {"erro": "Nenhuma solução combinada encontrada. Tente aumentar timeout ou tolerância.",
-                             "tempo_s": round(_elapsed, 2)})
+            _msg = {
+                "impossivel": "Combinar este grupo com menos enfestos e impossivel "
+                              "(provado sem busca: capacidade da mesa e das folhas).",
+                "tempo": "Nenhuma combinacao encontrada dentro do tempo: resultado inconclusivo.",
+            }.get(_status, "Nenhuma combinacao encontrada: a busca terminou sem achar.")
+            self._send(200, {"erro": _msg, "status": _status, "tempo_s": round(_elapsed, 2)})
             return
 
         def ser(o):
@@ -741,6 +797,8 @@ class Handler(BaseHTTPRequestHandler):
 
         resp = {
             "tipo"      : "multiref",
+            "status"    : "ok",
+            "convergiu" : bool(_convergiu),
             "solucoes"  : ser(solucoes),
             "tamanhos"  : tamanhos,
             "config"    : cfg,
