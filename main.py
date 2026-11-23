@@ -219,6 +219,18 @@ def _sufixos_tempos(cfg):
             "sufixo_grupo": f":{MOTOR_MULTIREF_ID}"}
 
 
+def _content_disposition(nome):
+    """Cabecalho de download que aceita qualquer nome de arquivo. O http.server
+    so envia cabecalhos em latin-1: travessao ou emoji no nome da referencia
+    quebravam o download. Vai um nome ASCII de reserva em filename e o nome
+    real em UTF-8 em filename* (RFC 6266), que os navegadores preferem."""
+    import unicodedata
+    from urllib.parse import quote
+    reserva = unicodedata.normalize("NFKD", nome).encode("ascii", "ignore").decode("ascii")
+    reserva = reserva.replace('"', "").replace("\\", "") or "arquivo"
+    return f"attachment; filename=\"{reserva}\"; filename*=UTF-8''{quote(nome)}"
+
+
 def _libs_faltando():
     """Bibliotecas do requirements.txt que nao estao instaladas nesta maquina.
     Sem elas o sistema perde recurso (numpy: busca local do multi-ref;
@@ -930,7 +942,7 @@ class Handler(BaseHTTPRequestHandler):
         ct = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" if ext == ".xlsx" else "application/octet-stream"
         self.send_response(200)
         self.send_header("Content-Type", ct)
-        self.send_header("Content-Disposition", f'attachment; filename="{nome}"')
+        self.send_header("Content-Disposition", _content_disposition(nome))
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)

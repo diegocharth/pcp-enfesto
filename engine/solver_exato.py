@@ -343,9 +343,11 @@ def resolver_exato(grade, tamanhos, limites, config, callback_progresso=None,
         return varrer_no_pool(ctx, base, partes, top, prazo, prazo_ao_achar,
                               rodar_fatias)
 
-    def nivel(n, extra):
+    def nivel(n, extra, inteiro=False):
         """Varre o nivel n; devolve (planos ordenados, completo, fronteira).
-        extra=True: nivel de 1 enfesto a mais, com orcamento curto."""
+        extra=True: nivel de 1 enfesto a mais, com orcamento curto.
+        inteiro=True ("Continuar" de um nivel parcial): sem solucao no pool, a
+        varredura completa usa o prazo todo (sem reservar tempo ao seguinte)."""
         K_pool = min(ctx.K, LIM_POOL.get(n, 10))
         completo_possivel = n <= N_MAX_COMPLETO
         ctx.truncou = False
@@ -371,6 +373,7 @@ def resolver_exato(grade, tamanhos, limites, config, callback_progresso=None,
                                   teto_sem_prova=TETO_SEM_PROVA_S)
             else:                     # nada no pool: guarda tempo p/ o proximo
                 completo = varrer(n, ctx.K, K_pool, top,
+                                  deadline if inteiro else
                                   agora + FRACAO_SEM_SOLUCAO * (deadline - agora),
                                   prazo_ao_achar=deadline)
             if not completo and time.time() >= deadline:
@@ -390,6 +393,8 @@ def resolver_exato(grade, tamanhos, limites, config, callback_progresso=None,
     nivel_n, top_n, completo_n, front_n = None, [], False, {}
     ultimo_n = max(n_ini, piso)
     proximo_n = ultimo_n              # nivel a (re)fazer se o usuario continuar
+    retomado = ultimo_n if n_ini > 1 else None   # "Continuar": 1o nivel ganha o prazo todo
+    nivel_parcial = None              # 1o nivel <= N_MAX_COMPLETO varrido so em parte
     for n in range(max(n_ini, piso), N_TETO):
         proximo_n = n
         if deadline - time.time() <= 0:
@@ -398,7 +403,7 @@ def resolver_exato(grade, tamanhos, limites, config, callback_progresso=None,
         if ctx.K < 1:
             break
         ultimo_n = n
-        top, completo, front = nivel(n, extra=False)
+        top, completo, front = nivel(n, extra=False, inteiro=(n == retomado))
         if not estado["cortado"]:
             proximo_n = n + 1
         if top:
@@ -409,8 +414,20 @@ def resolver_exato(grade, tamanhos, limites, config, callback_progresso=None,
             log(f"  Nivel {n}: nenhuma combinacao viavel (prova por varredura completa).")
         else:
             menor_n_provado = False
+            if n <= N_MAX_COMPLETO and nivel_parcial is None:
+                nivel_parcial = n
         if estado["cortado"]:
             break
+    # Sem solucao: "Continuar" volta ao nivel de 2-3 enfestos varrido so em
+    # parte (antes pulava para o nivel seguinte e podia perder a solucao). Se
+    # ele ja foi o retomado e segue parcial, segue adiante (sem laco) e avisa.
+    if not top_n and nivel_parcial is not None:
+        if nivel_parcial == retomado:
+            log(f"Nivel {nivel_parcial} segue incompleto com {timeout_s}s: "
+                f"aumente o timeout para varre-lo por completo.")
+        else:
+            proximo_n = min(proximo_n, nivel_parcial)
+            log(f"Nivel {nivel_parcial} ficou incompleto: 'Continuar' volta a ele.")
 
     # ── opcoes: (n, (chave, idx, escolha), provado, papel) ──────────────────
     opcoes = []

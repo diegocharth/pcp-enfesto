@@ -103,8 +103,10 @@ def _resolver_rolo_dp(cap_mm, itens_mm, rem, margem_mm, margem_pendente):
     fonte "primaria" do mapa. Recursao com memoizacao (sem tabela densa).
     Retorna {mapa_id: n_camadas} apenas com escolhas > 0.
     """
+    global _DP_ULTIMOS_PASSOS
     mids = [mid for mid, l in itens_mm if l > 0 and rem.get(mid, 0) > 0]
     lens = dict(itens_mm)
+    passos = [0]
 
     @lru_cache(maxsize=None)
     def rec(i, cap):
@@ -114,6 +116,9 @@ def _resolver_rolo_dp(cap_mm, itens_mm, rem, margem_mm, margem_pendente):
         comp = lens[mid]
         melhor, escolha = rec(i + 1, cap)
         max_k = min(rem[mid], cap // comp)
+        passos[0] += max_k + 1
+        if passos[0] > DP_LIMITE_PASSOS:
+            raise _DPGrande()
         for k in range(1, max_k + 1):
             custo = k * comp + (margem_mm if mid in margem_pendente else 0)
             if custo > cap:
@@ -123,9 +128,48 @@ def _resolver_rolo_dp(cap_mm, itens_mm, rem, margem_mm, margem_pendente):
                 melhor, escolha = sub + k * comp, sub_esc + ((mid, k),)
         return melhor, escolha
 
-    _, escolha = rec(0, max(0, int(cap_mm)))
-    rec.cache_clear()
+    try:
+        _, escolha = rec(0, max(0, int(cap_mm)))
+    except _DPGrande:
+        # Caso extremo (camadas curtas, rolo longo, muitos mapas): a busca
+        # completa do rolo levaria minutos/horas. Enche o rolo do mapa mais
+        # longo para o mais curto -- mesmas regras, sobra < menor camada.
+        escolha = tuple(_encher_rolo_guloso(cap_mm, [(mid, lens[mid]) for mid in mids],
+                                            rem, margem_mm, margem_pendente).items())
+    finally:
+        _DP_ULTIMOS_PASSOS = passos[0]
+        rec.cache_clear()
     return dict(escolha)
+
+
+# Teto de passos da mochila de UM rolo. Medido em 23/11/2026: alocacoes reais
+# usam no maximo ~31 mil passos por rolo; 400 casos aleatorios realistas (1-17
+# mapas, inclusive mapas de 1 peca) no maximo ~194 mil. So camadas curtas
+# (1-3 m) com rolos longos (100+ m) e muitos mapas passam disso -- e ai a
+# busca completa levava minutos ou horas por rolo (agora 1-4 s no total).
+DP_LIMITE_PASSOS = 1_000_000
+_DP_ULTIMOS_PASSOS = 0
+
+
+class _DPGrande(Exception):
+    pass
+
+
+def _encher_rolo_guloso(cap_mm, itens_mm, rem, margem_mm, margem_pendente):
+    """Enche UM rolo pegando, do mapa mais longo para o mais curto (ordem de
+    itens_mm), o maximo de camadas que cabe (com a margem quando o mapa ainda
+    nao a pagou). Reserva da mochila para instancias gigantes."""
+    cap = max(0, int(cap_mm))
+    escolha = {}
+    for mid, comp in itens_mm:
+        if comp <= 0 or rem.get(mid, 0) <= 0:
+            continue
+        marg = margem_mm if mid in margem_pendente else 0
+        k = min(rem[mid], (cap - marg) // comp) if cap > marg else 0
+        if k > 0:
+            escolha[mid] = k
+            cap -= k * comp + marg
+    return escolha
 
 
 def _ordem_enfestos(demanda, comp_camada_por_id):

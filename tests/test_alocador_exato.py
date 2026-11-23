@@ -313,3 +313,29 @@ def test_busca_local_e_deterministica():
             assert [x["usado_m"] for x in a["rolos"]] == [x["usado_m"] for x in b["rolos"]]
             return
     pytest.fail("nenhum caso com melhora da busca local")
+
+
+def test_rolo_a_rolo_nao_trava_com_camadas_curtas_e_rolos_longos():
+    # Etapa 6 (C7): 30 mapas de 0,8-3 m e rolos de 40-150 m faziam a mochila
+    # de um rolo levar minutos/horas. Agora cai no enchimento simples.
+    rnd = random.Random(2)
+    rnd.choice([17, 25, 30])
+    M = 30
+    cc = {m: round(rnd.uniform(0.8, 3.0), 3) for m in range(M)}
+    dem = {m: rnd.randint(1, 30) for m in range(M)}
+    rolos = [round(rnd.uniform(40, 150), 1) for _ in range(8)]
+    cfg = dict(CFG, margem_seguranca_enfesto_m=0.1)
+    t0 = time.perf_counter()
+    r = _alocar_cor(dem, cc, rolos, _sem(cfg))
+    assert time.perf_counter() - t0 < 60
+    assert AR._DP_ULTIMOS_PASSOS > AR.DP_LIMITE_PASSOS       # passou pelo teto
+    _valida(r, dem, cc, rolos, cfg)
+    assert r["n_rolos_utilizados"] == len(rolos)
+
+
+def test_enchimento_simples_respeita_rolo_e_margem():
+    # 3 camadas de 3 m + margem = 9,1 m; sobram 0,9 m: nao cabe 1 m + margem.
+    assert AR._encher_rolo_guloso(10_000, [(1, 3000), (2, 1000)], {1: 5, 2: 5}, 100, {1, 2}) == {1: 3}
+    # camada de 0,9 m: com a margem do mapa 2 ja paga cabe na sobra; pendente, nao
+    assert AR._encher_rolo_guloso(10_000, [(1, 3000), (2, 900)], {1: 5, 2: 5}, 100, {1}) == {1: 3, 2: 1}
+    assert AR._encher_rolo_guloso(10_000, [(1, 3000), (2, 900)], {1: 5, 2: 5}, 100, {1, 2}) == {1: 3}

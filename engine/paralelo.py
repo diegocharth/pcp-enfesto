@@ -106,9 +106,14 @@ def encerrar():
 
 
 def _reset_pool():
-    """Descarta um pool quebrado (worker morto) para recriar no proximo uso."""
+    """Descarta um pool quebrado (worker morto) para recriar no proximo uso.
+    So descarta se o pool ATUAL estiver quebrado: com dois calculos falhando ao
+    mesmo tempo, o segundo nao pode derrubar o pool novo e saudavel que o
+    primeiro acabou de criar (o calculo do primeiro falharia de vez)."""
     global _pool
     with _lock:
+        if _pool is not None and not getattr(_pool, "_broken", True):
+            return
         try:
             if _pool is not None:
                 _pool.shutdown(wait=False, cancel_futures=True)
