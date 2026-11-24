@@ -1,7 +1,21 @@
 #!/usr/bin/env python3
 """
-PCP Enfestos v2.14.0
+PCP Enfestos v2.15.0
 Changelog:
+  v2.15.0 - MOTOR EXATO + ALOCADOR DE MENOR COMPRA + CONFIABILIDADE.
+            (1) Plano de 1 referencia com motor exato (folhas exatas por cor,
+            todos os mapas): menos enfestos e menos desvio onde o motor antigo
+            errava (ex.: 3 -> 2 enfestos); opcoes "menos enfestos", "1 enfesto a
+            mais" (se reduzir o desvio) e "mapas mais cheios" (para aprovar),
+            com selo de otimo provado; busca dividida entre os nucleos. O motor
+            antigo segue como reserva (config "motor_single": "classico").
+            (2) Multi-ref: avisos honestos, folhas exatas, desempate por desvio.
+            (3) Alocacao de rolos procura a menor compra (busca exata com poucos
+            mapas, busca local com muitos); "alocacao_exata": false desliga.
+            (4) Confiabilidade: plano desatualizado nao vai para a alocacao,
+            exportar certo, aviso de linhas do PDF e de bibliotecas faltando,
+            download com qualquer nome, Continuar e Limpar corrigidos, release
+            so publica com a suite de testes verde.
   v2.14.0 - Alocacao de rolos: (1) Ponta FISICA -- a coluna Ponta passa a ser
             nominal - usado (a folga de incerteza segue limitando o
             planejamento contra o comp_seguro, mas nao e mais descontada da
@@ -120,7 +134,7 @@ from urllib.parse import urlparse
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE_DIR)
 
-VERSION      = "2.14.0"
+VERSION      = "2.15.0"
 CORES_FILE        = os.path.join(BASE_DIR, "dados", "cores_salvas.json")
 PARAMS_FILE       = os.path.join(BASE_DIR, "dados", "parametros_salvos.json")
 PID_FILE          = os.path.join(BASE_DIR, "dados", "servidor.pid")

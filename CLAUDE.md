@@ -11,7 +11,7 @@ Roda como servidor Python local na porta 5050. Interface HTML no navegador. Sem 
 
 **Stack:** Python 3.10+ · HTML/CSS/JS vanilla · openpyxl · pdfplumber · Windows 10/11
 
-**Versão atual:** 2.14.0 (publicada). O ramo local `solver-exato` traz o motor exato do single-ref e as opções N / N+1 / mapas cheios — ainda NÃO publicado (push na `main` com `VERSION` novo = deploy na fábrica).
+**Versão atual:** 2.15.0 (publicada em 24/11/2026: motor exato do single-ref, opções N / N+1 / mapas cheios, alocador de menor compra e as correções da Etapa 6). Push na `main` com `VERSION` novo = deploy na fábrica; subir também `VERSION` no `main.py` (há teste que confere).
 
 ---
 
