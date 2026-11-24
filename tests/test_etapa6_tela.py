@@ -111,3 +111,102 @@ setTimeout(function(){ console.log(JSON.stringify(resumoFinal.avisos)); }, 50);'
     texto = " | ".join(r)
     assert "AVISO: o PDF informa 3 rolos" in texto
     assert "2 linha(s)" in texto and "123 4A5 49,6" in texto
+
+
+# --- achados da revisao independente da Etapa 6 ------------------------------
+
+def _onload():
+    html = open(os.path.join(RAIZ, "interface.html"), encoding="utf-8").read()
+    m = re.search(r"\nwindow\.onload = async \(\) => \{(.*?)\n\};", html, flags=re.S)
+    assert m
+    return m.group(1)
+
+
+def test_aviso_de_biblioteca_aparece_sem_chave_da_api():
+    # Sem chave da API (padrao da fabrica), uma linha anterior quebrava
+    # (id "api-box" nao existe) e o aviso nunca aparecia.
+    r = _node(r'''
+var _els = {};
+var document = {getElementById: function(id){
+  if (id === 'api-box') return null;
+  if (!_els[id]) _els[id] = {style: {display: 'none'}, textContent: ''};
+  return _els[id]; }};
+var window = {};
+function renderTams(){} function renderTol(){} async function carregarDados(){}
+function addRef(){} function atualizarCoresAlocacao(){} function verificarUpdate(){}
+function setTimeout(){}
+async function fetch(url){ return {json: async function(){
+  return url === '/config_pub' ? {tem_api_key: false, faltando: ['numpy']} : {versao: 'x'}; }}; }
+''' + _js(["_avisoBibliotecas"]) + "\nvar onload = async () => {" + _onload() + r'''
+};
+onload().then(function(){ var b = _els['libs-banner'];
+  console.log(JSON.stringify({display: b.style.display, texto: b.textContent})); });''')
+    assert r["display"] == "block" and "numpy" in r["texto"]
+
+
+def test_aviso_de_biblioteca_fica_no_topo_da_pagina():
+    html = open(os.path.join(RAIZ, "interface.html"), encoding="utf-8").read()
+    assert html.index('id="libs-banner"') < html.index("<!-- PAR")
+
+
+def test_limpar_nao_quebra_e_esquece_o_plano():
+    r = _node(r'''
+var _els = {};
+var document = {getElementById: function(id){
+  if (id === 'upload-st') return null;          // nao existe no HTML
+  if (!_els[id]) _els[id] = {style: {display: 'block'}, textContent: 'x', innerHTML: 'x'};
+  return _els[id]; }};
+var window = {_resultadoMulti: {grupos: []}, _multiGrupoValidos: [1], _planoObsoleto: true};
+var cores = [], cadastroCores = ['AZUL'], refs = [1], pid = 3, resultado = {x: 1};
+var _rolosPorCor = {A: [1]}, _rolosImportados = {}, _planoImportado = {p: 1}, _equivPendentes = null;
+function renderCoresGrid(){} function addRef(){} function _renderEquivalencias(){} function _renderPlanoAlocacaoInfo(){}
+''' + _js(["limpar"]) + r'''
+var erro = null;
+try { limpar(); } catch(e) { erro = String(e); }
+console.log(JSON.stringify({erro: erro, resultado: resultado, multi: window._multiGrupoValidos,
+  obsoleto: window._planoObsoleto, importado: _planoImportado}));''')
+    assert r["erro"] is None
+    assert r["resultado"] is None and r["multi"] is None and r["importado"] is None
+    assert r["obsoleto"] is False
+
+
+def test_alocar_sem_calculo_pede_para_calcular():
+    r = _node(r'''
+var _els = {};
+var document = {getElementById: function(id){
+  if (!_els[id]) _els[id] = {style: {display: ''}, textContent: '', value: '1', checked: false};
+  return _els[id]; }};
+var window = {_planoObsoleto: true};             // digitou a grade, nunca calculou
+var _rolosImportados = {}, _rolosPorCor = {AZUL: [50]}, resultado = null;
+function _montarPlanoParaAlocacao(){ return null; }
+''' + _js(["iniciarAlocacao"]) + r'''
+iniciarAlocacao().then(function(){ console.log(JSON.stringify(_els['aloc-st'].textContent)); });''')
+    assert r.startswith("Calcule um plano de corte primeiro")
+
+
+def test_resultado_de_entrada_antiga_fica_desatualizado():
+    # Grade editada DURANTE o calculo: o resultado que chega e da grade antiga.
+    r = _node(DOM + _js(["_esconderResultadoPlano", "_esconderResultadoAlocacao",
+                         "_conferirVersaoCalc"]) + r'''
+var window = {};
+function _renderPlanoAlocacaoInfo(){}
+var v0 = window._versaoEntrada || 0;          // calculo comeca
+_esconderResultadoPlano();                     // operador edita a grade
+window._planoObsoleto = false;                 // resultado chega (render zera)
+document.getElementById('rb').style.display = 'block';
+_conferirVersaoCalc(v0);
+var depois = window._planoObsoleto;
+var v1 = window._versaoEntrada;                // novo calculo, sem edicao
+window._planoObsoleto = false;
+_conferirVersaoCalc(v1);
+console.log(JSON.stringify({editado: depois, limpo: window._planoObsoleto}));''')
+    assert r == {"editado": True, "limpo": False}
+
+
+def test_continuar_recusa_entrada_que_mudou_e_descarta_importado():
+    html = open(os.path.join(RAIZ, "interface.html"), encoding="utf-8").read()
+    m = re.search(r"async function continuarBusca\(proxN, skipC\)\{(.*?)\n  \}\n", html, flags=re.S)
+    assert m
+    corpo = m.group(1)
+    assert corpo.index("_versaoEntrada") < corpo.index("fetch('/calcular'")
+    assert "_planoImportado=null" in corpo.replace(" ", "")

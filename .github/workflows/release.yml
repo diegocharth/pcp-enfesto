@@ -9,6 +9,8 @@ on:
 
 jobs:
   release:
+    # So publica a partir da main (workflow_dispatch aceitaria qualquer ramo).
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -49,7 +51,7 @@ jobs:
 
       - name: Testes (nao publica se falhar)
         if: steps.check.outputs.exists == 'false'
-        run: python -m pytest tests/ -q
+        run: python -m pytest tests/ -q -p no:cacheprovider
 
       - name: Criar zip
         if: steps.check.outputs.exists == 'false'

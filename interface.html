@@ -137,6 +137,7 @@ input:focus,select:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 2p
   <div class="hdr-r"><span id="ver-sp">v{{VERSION}}</span><span>Charth</span></div>
 </div>
 <div class="wrap">
+<div id="libs-banner" style="display:none;background:var(--wnb,#fff8e1);border:1px solid var(--wn,#e0b000);border-radius:var(--r);padding:10px 14px;margin-bottom:10px;color:var(--wn,#8a6d00);font-size:13px"></div>
 
 <!-- PARÂMETROS -->
 <div class="card">
@@ -401,7 +402,6 @@ input:focus,select:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 2p
 </div>
 
 <!-- UPDATE BANNER -->
-<div id="libs-banner" style="display:none;background:var(--wnb,#fff8e1);border:1px solid var(--wn,#e0b000);border-radius:var(--r);padding:10px 14px;margin-bottom:10px;color:var(--wn,#8a6d00);font-size:13px"></div>
 <div id="update-banner" style="display:none;background:var(--okb);border:1px solid var(--ok);border-radius:var(--r);padding:10px 14px;margin-bottom:10px;flex-direction:row;align-items:center;gap:8px">
   <span style="font-weight:600;color:var(--ok)" id="update-msg"></span>
   <button class="btn btn-s btn-sm" style="background:var(--ok);color:#fff;border-color:var(--ok)" onclick="aplicarUpdate()">Atualizar agora</button>
@@ -448,10 +448,11 @@ window.onload = async () => {
   try { setTimeout(verificarUpdate, 3000); } catch(e) {}
   try { const d = await (await fetch('/versao')).json(); document.getElementById('ver-sp').textContent='v'+d.versao; } catch(e){}
   try { const d = await (await fetch('/config_pub')).json();
-    if (!d.tem_api_key) document.getElementById('api-box').style.display='block';
     var avLib = _avisoBibliotecas(d.faltando || []);
     var bxLib = document.getElementById('libs-banner');
     if (avLib && bxLib) { bxLib.textContent = avLib; bxLib.style.display = 'block'; }
+    var apiBox = document.getElementById('api-box');
+    if (!d.tem_api_key && apiBox) apiBox.style.display='block';
   } catch(e){}
 };
 
@@ -1092,6 +1093,7 @@ async function calcular(){
   // nao so depois que o novo calculo terminar (senao a alocacao velha fica visivel
   // e clicavel durante os minutos que o solver leva pra rodar).
   resultado=null; window._resultadoMulti=null;
+  const _versaoCalc=window._versaoEntrada||0;   // entrada usada por este calculo
   // O agrupamento multi-ref anterior tambem deixa de valer: senao "Exportar
   // Planilha" de um calculo de 1 referencia baixava o agrupamento antigo.
   window._multiGrupoValidos=null; window._dadoCombinado=null;
@@ -1324,6 +1326,7 @@ async function calcular(){
       _planoImportado=null;   // resultado novo assume o lugar do plano importado
       window._resultadoMulti={grupos:best.grupos};   // habilita a Alocacao de Rolos
       renderResultadoGrupos(validos);
+      _conferirVersaoCalc(_versaoCalc);
       try { atualizarCoresAlocacao(); } catch(e) {}
     }
     document.getElementById('btn-calc').disabled=false;
@@ -1347,6 +1350,11 @@ async function calcular(){
   async function continuarBusca(proxN, skipC){
     const btnCont = document.getElementById('btn-continuar');
     btnCont.style.display='none';
+    if ((window._versaoEntrada||0) !== _versaoCalc) {
+      // a grade/parametros mudaram: continuar recalcularia a entrada antiga
+      L('\nA grade ou os parametros mudaram desde este calculo: clique em Calcular de novo.');
+      return;
+    }
     document.getElementById('btn-copiar-log').style.display='none';
     payload.min_n_mapas = proxN;
     payload.skip_combos = skipC;
@@ -1379,7 +1387,9 @@ async function calcular(){
         L('✅ Solução encontrada!');
         document.getElementById('pbb').style.width='100%';
         _setEtapa('fim','✅ Concluído','ok');
+        _planoImportado=null;   // resultado novo assume o lugar do plano importado
         resultado=d2; renderResultado(d2);
+        _conferirVersaoCalc(_versaoCalc);
         try { atualizarCoresAlocacao(); } catch(e) {}
       }
     }catch(e2){
@@ -1447,6 +1457,7 @@ async function calcular(){
     _setEtapa('fim','✅ Concluído','ok');
     _planoImportado=null;   // resultado novo assume o lugar do plano importado
     resultado=data; renderResultado(data);
+    _conferirVersaoCalc(_versaoCalc);
     document.getElementById('btn-copiar-log').style.display='inline-flex';
     try { atualizarCoresAlocacao(); } catch(e) {}
   }catch(e){
@@ -2041,11 +2052,19 @@ function _esconderResultadoPlano(){
   // Grade ou parametros mudaram: o plano calculado deixa de valer para a
   // alocacao (antes a tela o escondia, mas a alocacao seguia usando-o).
   window._planoObsoleto=true;
+  window._versaoEntrada=(window._versaoEntrada||0)+1;
+  var bCont=document.getElementById('btn-continuar');   // retomada era da entrada antiga
+  if(bCont) bCont.style.display='none';
   try{ _renderPlanoAlocacaoInfo(); }catch(e){}
   var rb=document.getElementById('rb');
   if(rb && rb.style.display!=='none'){ rb.style.display='none';
     var s=document.getElementById('rb-stale'); if(s) s.style.display='block'; }
   _esconderResultadoAlocacao(); // plano mudou -> alocacao tambem fica obsoleta
+}
+// Resultado chegou, mas a grade/parametros mudaram DURANTE o calculo: ele e
+// da entrada antiga -- fica desatualizado (nao vai para a alocacao).
+function _conferirVersaoCalc(v){
+  if ((window._versaoEntrada || 0) !== v) _esconderResultadoPlano();
 }
 function _esconderResultadoAlocacao(){
   var ar=document.getElementById('aloc-resultado');
@@ -2084,7 +2103,7 @@ function limpar(){
   document.getElementById('pb').style.display='none';
   document.getElementById('rb').style.display='none';
   document.getElementById('sg').textContent='';
-  document.getElementById('upload-st').textContent='';
+  var upSt=document.getElementById('upload-st'); if(upSt) upSt.textContent='';
   document.getElementById('info-refs').textContent='';
   resultado=null;
   window._resultadoMulti=null;
@@ -2359,7 +2378,8 @@ async function iniciarAlocacao() {
 
   var plano = _montarPlanoParaAlocacao();
   if (!plano) {
-    st.textContent = window._planoObsoleto
+    st.textContent = (window._planoObsoleto && ((typeof resultado !== 'undefined' && resultado)
+                                               || window._resultadoMulti))
       ? 'O plano de corte ficou desatualizado (grade ou parametros mudaram): recalcule antes de alocar.'
       : 'Calcule um plano de corte primeiro (ou importe um plano salvo).';
     return;

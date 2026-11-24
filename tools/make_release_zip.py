@@ -10,7 +10,8 @@ import zipfile
 BASE    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VERSION = open(os.path.join(BASE, "VERSION")).read().strip()
 
-EXCLUIR_DIRS  = {"dados", "__pycache__", ".git", ".github", "node_modules", "tools"}
+EXCLUIR_DIRS  = {"dados", "__pycache__", ".git", ".github", "node_modules", "tools",
+                 ".pytest_cache"}
 EXCLUIR_EXTS  = {".pyc", ".pyo", ".zip"}
 EXCLUIR_NOMES = set()
 

@@ -59,3 +59,17 @@ console.log(JSON.stringify({um: _avisoBibliotecas(['numpy']), nada: _avisoBiblio
     assert "numpy" in r["um"] and "INSTALAR.bat" in r["um"] and "multi-ref" in r["um"]
     assert r["nada"] == ""
     assert "_avisoBibliotecas(" in html.split("window.onload")[1][:1500]
+
+
+def test_versao_do_main_igual_ao_arquivo_version():
+    import main
+    versao = open(os.path.join(RAIZ, "VERSION"), encoding="utf-8").read().strip()
+    assert main.VERSION == versao
+
+
+def test_release_so_publica_da_main_e_zip_sem_cache_do_pytest():
+    y = _yml("release.yml")
+    assert "refs/heads/main" in y
+    assert "no:cacheprovider" in y and "no:cacheprovider" in _yml("testes.yml")
+    z = open(os.path.join(RAIZ, "tools", "make_release_zip.py"), encoding="utf-8").read()
+    assert ".pytest_cache" in z
