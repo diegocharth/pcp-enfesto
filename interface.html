@@ -273,12 +273,12 @@ input:focus,select:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 2p
   <button class="btn btn-s" id="btn-continuar" style="display:none;background:#1a6e2e;color:#fff;border-color:#1a6e2e">🔄 Continuar</button>
   <button class="btn btn-s" id="btn-copiar-log" style="display:none" onclick="copiarLog()">📋 Copiar Log</button>
   <button class="btn btn-s" onclick="limpar()">↺ Limpar</button>
-  <button class="btn btn-s" onclick="encerrarSistema()" title="Encerra o servidor e fecha o sistema" style="margin-left:auto;color:var(--er);border-color:var(--er)">â¹ Encerrar</button>
+  <button class="btn btn-s" onclick="encerrarSistema()" title="Encerra o servidor e fecha o sistema" style="margin-left:auto;color:var(--er);border-color:var(--er)">&#9209; Encerrar</button>
   <span class="sm" id="sg"></span>
 </div>
 
 <div class="pb" id="pb">
-  <div class="pb-t">â³ Calculando...</div>
+  <div class="pb-t">&#9203; Calculando...</div>
   <div class="prog-etapas" id="prog-etapas"></div>
   <div class="pb-w"><div class="pb-b" id="pbb" style="width:3%"></div></div>
   <div class="pb-l" id="pbl" style="max-height:80px"></div>
@@ -674,7 +674,7 @@ function handleDrop(e) {
 async function handleFile(file) {
   if(!file) return;
   const st=document.getElementById('upload-st');
-  st.textContent=`â³ Processando ${file.name}...`;
+  st.textContent=`\u23F3 Processando ${file.name}...`;
   const isImg=/\.(jpg|jpeg|png)$/i.test(file.name);
   const reader=new FileReader();
   reader.onload=async(e)=>{
@@ -1908,6 +1908,7 @@ function renderOpMultiref(sol, tams, num){
       const cores_ref=Object.keys(ref.grade||{});
       const consumo=parseFloat(ref.consumo||1.0645);
       const nP=tams.reduce((s,t)=>s+(mapa[t]||0),0);
+      if(!nP) return;   // referencia sem pecas neste enfesto: nada a mostrar
       const compRef=(nP*consumo).toFixed(4);
       const tf=cores_ref.reduce((s,c)=>s+(folhas[c]?.[ki]||0),0);
       const ms=tams.filter(t=>mapa[t]>0).map(t=>`${mapa[t]}${t}`).join('+');
@@ -1962,9 +1963,18 @@ function renderCmp(sols,tams,grade,lims){
       msg='<span style="color:var(--ok);font-weight:600">Opção 1 sem ajuste de grade.</span> Opção 2 ajusta '+m1.dev+' peças'+(parseFloat(pctPpm)>0?' e ganha +'+pctPpm+'% de peças/mapa':' sem ganho de encaixe adicional')+'.';
     else if(m1.dev===0)
       msg='<span style="color:var(--ok);font-weight:600">Opção 2 sem ajuste de grade.</span> Opção 1 ajusta '+m0.dev+' peças'+(parseFloat(pctPpm)<0?' com +'+((-pctPpm).toFixed(1))+'% mais peças/mapa':' sem ganho de encaixe')+'.';
+    else if(diffDev===0&&diffPpm===0)
+      msg='As duas op\u00e7\u00f5es empatam: '+m0.dev+' pe\u00e7as de ajuste e '+m0.ppm+' p\u00e7/mapa.';
+    else if(diffDev===0)
+      msg='Mesmo ajuste ('+m0.dev+' pe\u00e7as); Op\u00e7\u00e3o '+(m0.ppm>m1.ppm?1:2)+' encaixa melhor ('
+        +Math.max(m0.ppm,m1.ppm)+' vs '+Math.min(m0.ppm,m1.ppm)+' p\u00e7/mapa). <b>Recomenda-se Op\u00e7\u00e3o '
+        +(m0.ppm>m1.ppm?1:2)+'.</b>';
     else if(diffDev>0&&diffPpm>0)
       msg='Opção 2 precisa de <b>+'+diffDev+' peças de ajuste</b> mas ganha <b>+'+pctPpm+'% de eficiência de encaixe</b>. '+(parseFloat(pctPpm)>=10?'<span style="color:var(--ok);font-weight:600">Ganho significativo — pode justificar o ajuste.</span>':'<span style="color:var(--wn);font-weight:600">Ganho pequeno — prefira Opção 1 se o ajuste for crítico.</span>');
-    else if(diffDev<=0)
+    else if(diffDev>0)
+      msg='Op\u00e7\u00e3o 1 \u00e9 melhor nas duas medidas: menos ajuste ('+m0.dev+' vs '+m1.dev+' pe\u00e7as) e encaixe igual ou melhor ('
+        +m0.ppm+' vs '+m1.ppm+' p\u00e7/mapa). <b>Recomenda-se Op\u00e7\u00e3o 1.</b>';
+    else if(diffDev<0)
       msg='Opção 2 tem <b>menor ajuste</b> ('+m1.dev+' vs '+m0.dev+' peças). '+(diffPpm>=0?'Recomenda-se Opção 2.':'Mas Opção 1 tem '+(-pctPpm).toFixed(1)+'% mais peças/mapa.');
     else
       msg='Opção 1: '+m0.dev+' peças ajuste, '+m0.ppm+' pç/mapa. Opção 2: '+m1.dev+' peças ajuste, '+m1.ppm+' pç/mapa.';

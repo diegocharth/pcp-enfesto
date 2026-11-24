@@ -140,11 +140,23 @@ def _calcular_tradeoff(sols, grade, tamanhos):
     elif d1 == 0:
         msg = f"Opção 2 sem ajuste de grade. Opção 1 ajusta {d0} peças" + (f" com +{abs(pct_ppm)}% mais peças/mapa." if pct_ppm < 0 else ".")
         nivel = "ok"
+    elif diff_dev == 0:
+        if diff_ppm == 0:
+            msg = f"As duas opções empatam: {d0} peças de ajuste e {p0} pç/mapa."
+            nivel = "info"
+        else:
+            k, pk, po = (1, p0, p1) if p0 > p1 else (2, p1, p0)
+            msg = f"Mesmo ajuste ({d0} peças); Opção {k} encaixa melhor ({pk} vs {po} pç/mapa). Recomenda-se Opção {k}."
+            nivel = "ok"
     elif diff_dev > 0 and diff_ppm > 0:
         justifica = pct_ppm >= 10
         msg = f"Opção 2 precisa de +{diff_dev} peças de ajuste mas ganha +{pct_ppm}% de eficiência de encaixe. {'Ganho significativo — pode justificar o ajuste.' if justifica else 'Ganho pequeno — prefira Opção 1 se o ajuste for crítico.'}"
         nivel = "ok" if justifica else "aviso"
-    elif diff_dev <= 0:
+    elif diff_dev > 0:
+        # Opção 1 ganha nas duas medidas: menos ajuste e encaixe igual ou melhor.
+        msg = f"Opção 1 é melhor nas duas medidas: menos ajuste ({d0} vs {d1} peças) e encaixe igual ou melhor ({p0} vs {p1} pç/mapa). Recomenda-se Opção 1."
+        nivel = "ok"
+    elif diff_dev < 0:
         msg = f"Opção 2 tem menor ajuste ({d1} vs {d0} peças)." + (" Recomenda-se Opção 2." if diff_ppm >= 0 else f" Mas Opção 1 tem {abs(pct_ppm)}% mais peças/mapa.")
         nivel = "ok"
     else:

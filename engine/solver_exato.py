@@ -451,8 +451,11 @@ def resolver_exato(grade, tamanhos, limites, config, callback_progresso=None,
                 opcoes.append((nivel_n, ((dev_c, -p_c, drel_c), v[1], v[2]),
                                completo_n, "mapas_cheios"))
             usados = {o[1][1] for o in opcoes if o[0] == nivel_n}
+            # "Padrao" (2): os papeis acima, completando ate 2 com alternativas;
+            # "+ 1 alternativa extra" (3): sempre 1 alternativa alem dos papeis.
+            limite_alt = max(num_opcoes, len(opcoes) + num_opcoes - 2)
             for s in top_n[1:]:
-                if len(opcoes) >= num_opcoes:
+                if len(opcoes) >= limite_alt:
                     break
                 if s[1] not in usados:
                     usados.add(s[1])

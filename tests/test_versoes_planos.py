@@ -179,7 +179,7 @@ def test_snapshot_exclui_config_json(tmp_path):
 
 def test_sinalizar_restauracao_rejeita_traversal(tmp_path):
     base = _base_fake(tmp_path)
-    for ruim in ("../../evil", "..\evil", "a/b", ""):
+    for ruim in ("../../evil", r"..\evil", "a/b", ""):
         with pytest.raises(ValueError):
             versoes.sinalizar_restauracao(ruim, base_dir=base)
 

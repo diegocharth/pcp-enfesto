@@ -16,7 +16,7 @@ e recebe ctx.truncou = True se alguma guarda de tamanho disparar -- nesse caso
 o resultado continua valido, mas deixa de valer como prova.
 """
 
-MOTOR_ID = "exato-4"        # entra na assinatura do cache: mudar ao mudar o resultado
+MOTOR_ID = "exato-5"        # entra na assinatura do cache: mudar ao mudar o resultado
 
 MAX_NOS_COR = 20000         # guarda da enumeracao de folhas de uma cor
 MAX_PONTOS_COR = 20000      # so corta listas absurdas; pontos dominados saem em _conjunto
