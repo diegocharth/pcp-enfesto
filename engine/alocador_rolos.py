@@ -143,11 +143,12 @@ def _resolver_rolo_dp(cap_mm, itens_mm, rem, margem_mm, margem_pendente):
 
 
 # Teto de passos da mochila de UM rolo. Medido em 23/11/2026: alocacoes reais
-# usam no maximo ~31 mil passos por rolo; 400 casos aleatorios realistas (1-17
-# mapas, inclusive mapas de 1 peca) no maximo ~194 mil. So camadas curtas
-# (1-3 m) com rolos longos (100+ m) e muitos mapas passam disso -- e ai a
-# busca completa levava minutos ou horas por rolo (agora 1-4 s no total).
-DP_LIMITE_PASSOS = 1_000_000
+# (rolos ate 76 m) usam no maximo ~34 mil passos por rolo; 400 casos aleatorios
+# realistas no maximo ~194 mil; 17 mapas de 8-10 m com rolo de 80 m ~0,5 milhao,
+# 107 m ~1,8 milhao, 150 m ~4,4 milhoes (2,4 s). Acima do teto (camadas curtas
+# de 1-3 m com rolos longos e muitos mapas, onde a busca completa levava minutos
+# ou horas por rolo) enche o rolo do mapa mais longo para o mais curto.
+DP_LIMITE_PASSOS = 5_000_000
 _DP_ULTIMOS_PASSOS = 0
 
 

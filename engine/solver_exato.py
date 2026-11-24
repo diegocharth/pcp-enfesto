@@ -414,15 +414,18 @@ def resolver_exato(grade, tamanhos, limites, config, callback_progresso=None,
             log(f"  Nivel {n}: nenhuma combinacao viavel (prova por varredura completa).")
         else:
             menor_n_provado = False
-            if n <= N_MAX_COMPLETO and nivel_parcial is None:
-                nivel_parcial = n
+            if n <= N_MAX_COMPLETO and nivel_parcial is None and not ctx.truncou:
+                nivel_parcial = n             # (truncado por tamanho: tempo nao ajuda)
         if estado["cortado"]:
             break
     # Sem solucao: "Continuar" volta ao nivel de 2-3 enfestos varrido so em
     # parte (antes pulava para o nivel seguinte e podia perder a solucao). Se
-    # ele ja foi o retomado e segue parcial, segue adiante (sem laco) e avisa.
+    # ele ja foi o retomado (teve o prazo todo) e segue parcial -- a varredura
+    # real so para no prazo, entao o nivel sai "cortado" --, o proximo
+    # Continuar segue adiante (sem laco) e o log avisa.
     if not top_n and nivel_parcial is not None:
         if nivel_parcial == retomado:
+            proximo_n = max(proximo_n, nivel_parcial + 1)
             log(f"Nivel {nivel_parcial} segue incompleto com {timeout_s}s: "
                 f"aumente o timeout para varre-lo por completo.")
         else:

@@ -327,7 +327,7 @@ def test_rolo_a_rolo_nao_trava_com_camadas_curtas_e_rolos_longos():
     cfg = dict(CFG, margem_seguranca_enfesto_m=0.1)
     t0 = time.perf_counter()
     r = _alocar_cor(dem, cc, rolos, _sem(cfg))
-    assert time.perf_counter() - t0 < 60
+    assert time.perf_counter() - t0 < 120   # antes: minutos/horas
     assert AR._DP_ULTIMOS_PASSOS > AR.DP_LIMITE_PASSOS       # passou pelo teto
     _valida(r, dem, cc, rolos, cfg)
     assert r["n_rolos_utilizados"] == len(rolos)

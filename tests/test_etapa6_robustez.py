@@ -42,17 +42,16 @@ CFG = {"mesa_comprimento_m": 10.0, "consumo_peca_m": 1.0, "limite_folhas_padrao"
 
 
 def _fingir_varredura(monkeypatch, prazos):
-    """Niveis 2-3: varredura parcial sem solucao, que para no proprio orcamento
-    (nao no prazo total). Niveis 4+: so terminam no prazo total (cortados)."""
+    """Como a varredura real: sem solucao, so para quando o prazo dela acaba.
+    Nivel 1 fecha; niveis 2-3: pool fecha, varredura total para no prazo dela
+    (parcial); niveis 4+: so terminam no prazo total (cortados)."""
     def falso(ctx, n, K, K_ja, top, *a, **k):
         prazos.append((n, K_ja, ctx.prazo))
-        if n == 1:
-            return True           # 1 enfesto: varredura completa, sem solucao
-        if n >= 4:
-            while time.time() < ctx.prazo:
-                time.sleep(0.01)
-            return False
-        return K_ja == 0          # pool "completo", varredura total parcial
+        if n == 1 or (n <= 3 and K_ja == 0):
+            return True
+        while time.time() < ctx.prazo:
+            time.sleep(0.01)
+        return False
     monkeypatch.setattr(SE, "_varrer", falso)
 
 
