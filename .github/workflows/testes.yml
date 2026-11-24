@@ -23,4 +23,9 @@ jobs:
         run: python -m pip install -r requirements.txt pytest
 
       - name: Testes
-        run: python -m pytest tests/ -q -p no:cacheprovider
+        run: |
+          python -m pytest tests/ -q -p no:cacheprovider -rf --junitxml="$RUNNER_TEMP/junit.xml" || {
+            # Falhas viram anotacoes (visiveis sem login na pagina e na API).
+            python tools/anotar_falhas.py "$RUNNER_TEMP/junit.xml"
+            exit 1
+          }
